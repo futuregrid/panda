@@ -1,0 +1,12 @@
+export CUDA_HOME=/opt/cuda/
+export PATH=$CUDA_HOME/bin:$PATH
+module load intelmpi/4.0.0.028
+
+cd PandaV0.4
+make clean
+make
+
+uniq /var/spool/torque/aux/401389.i136 > 1nodes
+mpdallexit
+mpdboot -r ssh -f 1nodes -n 1
+mpiexec -l -machinefile 1nodes -n 1 ./panda_main 
