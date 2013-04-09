@@ -1,65 +1,7 @@
-// MersenneTwister.h
-// Mersenne Twister random number generator -- a C++ class MTRand
-// Based on code by Makoto Matsumoto, Takuji Nishimura, and Shawn Cokus
-// Richard J. Wagner  v1.1  28 September 2009  wagnerr@umich.edu
 
-// The Mersenne Twister is an algorithm for generating random numbers.  It
-// was designed with consideration of the flaws in various other generators.
-// The period, 2^19937-1, and the order of equidistribution, 623 dimensions,
-// are far greater.  The generator is also fast; it avoids multiplication and
-// division, and it benefits from caches and pipelines.  For more information
-// see the inventors' web page at
-// http://www.math.sci.hiroshima-u.ac.jp/~m-mat/MT/emt.html
+#ifndef MTRAND_H
+#define MTRAND_H
 
-// Reference
-// M. Matsumoto and T. Nishimura, "Mersenne Twister: A 623-Dimensionally
-// Equidistributed Uniform Pseudo-Random Number Generator", ACM Transactions on
-// Modeling and Computer Simulation, Vol. 8, No. 1, January 1998, pp 3-30.
-
-// Copyright (C) 1997 - 2002, Makoto Matsumoto and Takuji Nishimura,
-// Copyright (C) 2000 - 2009, Richard J. Wagner
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions
-// are met:
-//
-//   1. Redistributions of source code must retain the above copyright
-//      notice, this list of conditions and the following disclaimer.
-//
-//   2. Redistributions in binary form must reproduce the above copyright
-//      notice, this list of conditions and the following disclaimer in the
-//      documentation and/or other materials provided with the distribution.
-//
-//   3. The names of its contributors may not be used to endorse or promote
-//      products derived from this software without specific prior written
-//      permission.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-// POSSIBILITY OF SUCH DAMAGE.
-
-// The original code included the following notice:
-//
-//     When you use this, send an email to: m-mat@math.sci.hiroshima-u.ac.jp
-//     with an appropriate reference to your work.
-//
-// It would be nice to CC: wagnerr@umich.edu and Cokus@math.washington.edu
-// when you write.
-
-#ifndef MERSENNETWISTER_H
-#define MERSENNETWISTER_H
-
-// Not thread safe (unless auto-initialization is avoided and each thread has
-// its own MTRand object)
 
 #include <climits>
 #include <cstdlib>
@@ -390,52 +332,5 @@ inline MTRand& MTRand::operator=( const MTRand& o )
 	return (*this);
 }
 
-#endif  // MERSENNETWISTER_H
+#endif  // MTRAND_H
 
-// Change log:
-//
-// v0.1 - First release on 15 May 2000
-//      - Based on code by Makoto Matsumoto, Takuji Nishimura, and Shawn Cokus
-//      - Translated from C to C++
-//      - Made completely ANSI compliant
-//      - Designed convenient interface for initialization, seeding, and
-//        obtaining numbers in default or user-defined ranges
-//      - Added automatic seeding from /dev/urandom or time() and clock()
-//      - Provided functions for saving and loading generator state
-//
-// v0.2 - Fixed bug which reloaded generator one step too late
-//
-// v0.3 - Switched to clearer, faster reload() code from Matthew Bellew
-//
-// v0.4 - Removed trailing newline in saved generator format to be consistent
-//        with output format of built-in types
-//
-// v0.5 - Improved portability by replacing static const int's with enum's and
-//        clarifying return values in seed(); suggested by Eric Heimburg
-//      - Removed MAXINT constant; use 0xffffffffUL instead
-//
-// v0.6 - Eliminated seed overflow when uint32 is larger than 32 bits
-//      - Changed integer [0,n] generator to give better uniformity
-//
-// v0.7 - Fixed operator precedence ambiguity in reload()
-//      - Added access for real numbers in (0,1) and (0,n)
-//
-// v0.8 - Included time.h header to properly support time_t and clock_t
-//
-// v1.0 - Revised seeding to match 26 Jan 2002 update of Nishimura and Matsumoto
-//      - Allowed for seeding with arrays of any length
-//      - Added access for real numbers in [0,1) with 53-bit resolution
-//      - Added access for real numbers from normal (Gaussian) distributions
-//      - Increased overall speed by optimizing twist()
-//      - Doubled speed of integer [0,n] generation
-//      - Fixed out-of-range number generation on 64-bit machines
-//      - Improved portability by substituting literal constants for long enum's
-//      - Changed license from GNU LGPL to BSD
-//
-// v1.1 - Corrected parameter label in randNorm from "variance" to "stddev"
-//      - Changed randNorm algorithm from basic to polar form for efficiency
-//      - Updated includes from deprecated <xxxx.h> to standard <cxxxx> forms
-//      - Cleaned declarations and definitions to please Intel compiler
-//      - Revised twist() operator to work on ones'-complement machines
-//      - Fixed reload() function to work when N and M are unsigned
-//      - Added copy constructor and copy operator from Salvador Espana
