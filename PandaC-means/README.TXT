@@ -33,4 +33,3 @@ TODO List:
 5)Many Map tasks Map to one Mapper	DONE
 6)Shared memory for intermediate data	DONE
 7)Shared memory for reduce data
-

@@ -18,7 +18,7 @@
 #ifndef _PANDASCHED_CU_
 #define _PANDASCHED_CU_
 
-// includes, kernels
+//includes, kernels
 #include "Panda.h"
 #include "UserAPI.h"
 
@@ -26,67 +26,131 @@
 //--------------------------------------------------
 //  PandaMetaScheduler
 //--------------------------------------------------
+
 /*
  * 1) input a set of panda worker (thread)
  * 2) each panda worker consist of one panda job and pand device
  * 3) copy input data from pand job to pand device 
  */
 
-
-
 //For version 0.3
+
 void PandaMetaScheduler(thread_info_t *thread_info, panda_context *panda){
 
-	int num_gpus = panda->num_gpus;
+	int num_gpu_core_groups = panda->num_gpu_core_groups;
+	int num_gpu_card_groups = panda->num_gpu_card_groups;
 	int num_cpus_groups = panda->num_cpus_groups;
-	float ratio = panda->ratio;
-	
-	pthread_t *no_threads = (pthread_t*)malloc(sizeof(pthread_t)*(num_gpus + num_cpus_groups));
+
+	pthread_t *no_threads = (pthread_t*)malloc(sizeof(pthread_t)*(num_gpu_core_groups + num_gpu_card_groups + num_cpus_groups));
 	
 	int assigned_gpu_id = 0;
 	int assigned_cpu_group_id = 0;
-	for (int dev_id=0; dev_id<(num_gpus + num_cpus_groups); dev_id++){
+	static int configured = 0;
 
-		if (thread_info[dev_id].device_type == GPU_ACC){
+	for (int dev_id=0; dev_id<(num_gpu_core_groups + num_cpus_groups + num_gpu_card_groups); dev_id++){
+
+		if (thread_info[dev_id].device_type == GPU_CORE_ACC){
 			
-			job_configuration* gpu_job_conf = (job_configuration*)(thread_info[dev_id].job_conf);
-			gpu_context *d_g_state = CreateGPUContext();
+			gpu_context *d_g_state = CreateGPUCoreContext();
+			job_configuration *gpu_job_conf = (job_configuration *)(thread_info[dev_id].job_conf);
+
 			d_g_state->num_mappers = gpu_job_conf->num_mappers;
 			d_g_state->num_reducers = gpu_job_conf->num_reducers;
-			d_g_state->num_gpus = num_gpus;
+			d_g_state->num_gpu_core_groups = num_gpu_core_groups;
 			d_g_state->gpu_id = assigned_gpu_id;
+			d_g_state->local_combiner = gpu_job_conf->local_combiner;
+
+			if (configured == 0)
+				d_g_state->iterative_support = false;
+			else{
+				d_g_state->iterative_support = true;
+			}
+				configured++;
+			//d_g_state->iterative_support = gpu_job_conf->iterative_support;
 
 			thread_info[dev_id].tid = dev_id;
 			thread_info[dev_id].d_g_state = d_g_state;
 
-			ShowLog("Assigned Dev_ID:[%d] GPU_ACC TID:%d",assigned_gpu_id,thread_info[dev_id].tid);
+			ShowLog("Assigned Dev_ID:[%d] GPU_CORE_ACC TID:%d",assigned_gpu_id,thread_info[dev_id].tid);
 			assigned_gpu_id++;
+
 		}//if
+
+		if (thread_info[dev_id].device_type == GPU_CARD_ACC){
+			
+			gpu_card_context *d_g_state = CreateGPUCardContext();
+			job_configuration *gpu_job_conf = (job_configuration *)(thread_info[dev_id].job_conf);
+
+			//d_g_state->num_mappers = gpu_job_conf->num_mappers;
+			//d_g_state->num_reducers = gpu_job_conf->num_reducers;
+			d_g_state->num_gpu_card_groups = num_gpu_card_groups;
+			d_g_state->gpu_id = assigned_gpu_id;
+			d_g_state->local_combiner = gpu_job_conf->local_combiner;
+
+			if (configured == 0)
+				d_g_state->iterative_support = false;
+			else{
+				d_g_state->iterative_support = true;
+			}//if
+			configured++;
+			//d_g_state->iterative_support = gpu_job_conf->iterative_support;
+
+			thread_info[dev_id].tid = dev_id;
+			thread_info[dev_id].d_g_state = d_g_state;
+
+			ShowLog("Assigned Dev_ID:[%d] GPU_CARD_ACC TID:%d",assigned_gpu_id,thread_info[dev_id].tid);
+			assigned_gpu_id++;
+
+		}//if
+
 
 		if (thread_info[dev_id].device_type == CPU_ACC){
 			
 			cpu_context *d_g_state = CreateCPUContext();
+			job_configuration *cpu_job_conf = (job_configuration *)(thread_info[dev_id].job_conf);
+			
 			d_g_state->cpu_group_id = assigned_cpu_group_id;
+			d_g_state->local_combiner = cpu_job_conf->local_combiner;
+			d_g_state->iterative_support = cpu_job_conf->iterative_support;
+
 			thread_info[dev_id].tid = dev_id;
 			thread_info[dev_id].d_g_state = d_g_state;
 
 			ShowLog("Assigned Dev_ID:[%d] CPU_ACC TID:%d",dev_id,thread_info[dev_id].tid);
 			assigned_cpu_group_id++;
+
 		}//if
 	}//for
 	
 	///////////////////////////////////////////////////
-		
-	for (int dev_id = 0; dev_id<(num_gpus+num_cpus_groups); dev_id++){
+	double t2 = PandaTimer();
 
-		if (thread_info[dev_id].device_type == GPU_ACC){
+	for (int dev_id = 0; dev_id<(num_gpu_core_groups+num_gpu_card_groups+num_cpus_groups); dev_id++){
+
+		if (thread_info[dev_id].device_type == GPU_CORE_ACC){
 
 				job_configuration *gpu_job_conf = (job_configuration *)(thread_info[dev_id].job_conf);
 				int start_task_id = 0;
 				int end_task_id = gpu_job_conf->num_input_record;
 				gpu_context* d_g_state = (gpu_context*)(thread_info[dev_id].d_g_state);
+				
+				if (gpu_job_conf->num_input_record>0)
+					AddMapInputRecord4GPUCore(d_g_state,(gpu_job_conf->input_keyval_arr), start_task_id,end_task_id);
+				else
+					ShowWarn("gpu_job_conf->num_input_record == 0");
+		}//if
 
-				AddMapInputRecordGPU(d_g_state,(gpu_job_conf->input_keyval_arr), start_task_id,end_task_id);
+		if (thread_info[dev_id].device_type == GPU_CARD_ACC){
+
+				job_configuration *gpu_job_conf = (job_configuration *)(thread_info[dev_id].job_conf);
+				int start_task_id = 0;
+				int end_task_id = gpu_job_conf->num_input_record;
+				gpu_card_context* d_g_state = (gpu_card_context*)(thread_info[dev_id].d_g_state);
+				
+				if (gpu_job_conf->num_input_record>0)
+					AddMapInputRecord4GPUCard(d_g_state,(gpu_job_conf->input_keyval_arr), start_task_id,end_task_id);
+				else
+					ShowWarn("gpu_job_conf->num_input_record == 0");
 				
 		}//if
 	
@@ -97,97 +161,166 @@ void PandaMetaScheduler(thread_info_t *thread_info, panda_context *panda){
 				int end_task_id = cpu_job_conf->num_input_record;
 				cpu_context* d_g_state = (cpu_context*)(thread_info[dev_id].d_g_state);
 				
-				AddMapInputRecordCPU(d_g_state,(cpu_job_conf->input_keyval_arr),start_task_id, end_task_id);
+				//ShowWarn("cpu_job_conf->num_input_record:%d ",cpu_job_conf->num_input_record);
+				if (cpu_job_conf->num_input_record>0)
+					AddMapInputRecordCPU(d_g_state,(cpu_job_conf->input_keyval_arr),start_task_id, end_task_id);
+				else
+					ShowWarn("cpu_job_conf->num_input_record == 0");
 				
 		}//if
 	}//for
-	
-	for (int dev_id = 0; dev_id<(num_gpus+num_cpus_groups); dev_id++){
+
+	//1) initial map; 2)run map task; 3) run local combiner
+	for (int dev_id = 0; dev_id<(num_gpu_core_groups + num_gpu_card_groups + num_cpus_groups); dev_id++){
 		if (pthread_create(&(no_threads[dev_id]), NULL, Panda_Map, (char *)&(thread_info[dev_id])) != 0) 
 			perror("Thread creation failed!\n");
 	}//for
 
-	for (int i = 0; i < num_gpus + num_cpus_groups; i++){
+	for (int i = 0; i < num_gpu_core_groups + num_gpu_card_groups + num_cpus_groups; i++){
 		void *exitstat;
 		if (pthread_join(no_threads[i],&exitstat)!=0) perror("joining failed");
 	}//for
+	
+	double t3 = PandaTimer();
+	for (int i = 0; i < num_gpu_core_groups + num_gpu_card_groups+ num_cpus_groups; i++){
 
-	//ShowLog("start to merge results of GPU's and CPU's device to Panda scheduler");
-	for (int i = 0; i < num_gpus+num_cpus_groups; i++){
-
-		if (thread_info[i].device_type == CPU_ACC)
+		if (thread_info[i].device_type == CPU_ACC){
 			PandaShuffleMergeCPU((panda_context*)panda, (cpu_context*)(thread_info[i].d_g_state));
-
-		if (thread_info[i].device_type == GPU_ACC)
+			//ShowLog("==>CPU d_g_state_1->sorted_keyvals_arr_len:%d",panda->sorted_keyvals_arr_len);
+		}//if
+		if (thread_info[i].device_type == GPU_CORE_ACC){
 			PandaShuffleMergeGPU((panda_context*)panda, (gpu_context*)(thread_info[i].d_g_state));
-			
-	}//for
-	
-	//TODO reduce task ratio 
-	int num_sorted_intermediate_record = panda->sorted_keyvals_arr_len;
-	int records_per_device = num_sorted_intermediate_record/(num_gpus + num_cpus_groups*ratio);
-	
-	int *split = (int*)malloc(sizeof(int)*(num_gpus+num_cpus_groups));
-	
-	for (int i=0; i<num_gpus; i++){
-	
-				if (i==0) 
-				split[0] = records_per_device;
-				else
-				split[i] = split[i-1] + records_per_device;
-				
-	}//for
-	
-	for (int i=num_gpus; i<num_gpus+num_cpus_groups; i++){
-	
-				if (i==0) 
-				split[0] = records_per_device*ratio;
-				else 
-				split[i] = split[i-1] + records_per_device*ratio;
-				ShowLog("split[%d]=%d ratio:%f records_per_device:%d",i,split[i],ratio,records_per_device);						
-	}//for
-	split[num_gpus + num_cpus_groups-1] = num_sorted_intermediate_record;
+			//ShowLog("==>GPU d_g_state_1->sorted_keyvals_arr_len:%d",panda->sorted_keyvals_arr_len);
+		}//if
 
-	for (int dev_id = 0; dev_id<(num_gpus+num_cpus_groups); dev_id++){
+		if (thread_info[i].device_type == GPU_CARD_ACC){
+			ShowLog("PandaShuffleMergeGPUCard TODO");
+			PandaShuffleMergeGPUCard((panda_context*)panda, (gpu_card_context*)(thread_info[i].d_g_state));
+			//ShowLog("==>GPU d_g_state_1->sorted_keyvals_arr_len:%d",panda->sorted_keyvals_arr_len);
+		}//if
+
+	}//for
+	
+	double t4 = PandaTimer();
+	
+	int num_sorted_intermediate_record = panda->sorted_keyvals_arr_len;
+	if(panda->cpu_ratio>1){
+		ShowWarn("panda->ratio:%f > 1",panda->cpu_ratio); 
+		panda->cpu_ratio = 1.0;
+	}//int
+	
+	int num_tasks_4_cpu = (int)(num_sorted_intermediate_record*(panda->cpu_ratio));
+	int num_tasks_4_gpu_core = num_sorted_intermediate_record - num_tasks_4_cpu;
+	int num_tasks_4_gpu_card = num_sorted_intermediate_record ;
+	//TODO
+
+	num_tasks_4_gpu_core = 0;
+	num_tasks_4_gpu_card = 0;
+	num_tasks_4_cpu = num_sorted_intermediate_record;
+
+	ShowLog(" number of reduce tasks:%d  num_tasks_4_gpu_core:%d num_tasks_4_gpu_card:%d num_tasks_4_cpu:%d ",
+		panda->sorted_keyvals_arr_len,num_tasks_4_gpu_core,num_tasks_4_gpu_card, num_tasks_4_cpu);
+
+	int task_per_cpu = 0;
+	if (num_cpus_groups>0) task_per_cpu = num_tasks_4_cpu/(num_cpus_groups);
+
+	int task_per_gpu_core = 0;
+	if (num_gpu_core_groups>0) task_per_gpu_core = num_tasks_4_gpu_core/(num_gpu_core_groups);
+
+	int task_per_gpu_card = 0;
+	if (num_gpu_core_groups>0) task_per_gpu_core = num_tasks_4_gpu_card/(num_gpu_card_groups);
+
+	int *split = (int*)malloc(sizeof(int)*(num_gpu_core_groups+num_gpu_card_groups+num_cpus_groups));
+	
+
+	for (int i=0; i<(num_gpu_core_groups+num_gpu_card_groups+num_cpus_groups); i++){
+
+		if (i<num_gpu_core_groups){
+		
+			if (i==0) 	split[0] = task_per_gpu_core;
+			else if (i== num_gpu_core_groups -1) split[i] = num_tasks_4_gpu_core;
+			else split[i] = split[i-1] + task_per_gpu_core;
+
+		}else if (i<num_gpu_core_groups+num_gpu_card_groups){
+
+			if (i==0) 	split[0] = task_per_gpu_card;
+			else if (i == num_gpu_core_groups + num_gpu_card_groups - 1) split[i] = num_tasks_4_gpu_core + num_tasks_4_gpu_card;
+			else split[i] = split[i-1] + task_per_gpu_card;
+			
+		}else {
+
+			if (i==0) 	split[0] = task_per_cpu;
+			else if (i == num_gpu_core_groups + num_gpu_card_groups + num_cpus_groups - 1) split[i] = num_tasks_4_gpu_core + num_tasks_4_gpu_card + num_tasks_4_cpu;
+			else split[i] = split[i-1] + task_per_cpu;
+
+		}
+
+	}//for
+	split[num_gpu_core_groups + num_gpu_card_groups + num_cpus_groups - 1] = num_sorted_intermediate_record;
+
+	for (int dev_id = 0; dev_id<(num_gpu_core_groups + num_gpu_card_groups + num_cpus_groups); dev_id++){
 	
 		int start_row_id = 0;
 		if (dev_id>0) start_row_id = split[dev_id-1];
 		int end_row_id = split[dev_id];
 				
-		if (thread_info[dev_id].device_type == GPU_ACC){
+		if (thread_info[dev_id].device_type == GPU_CORE_ACC){
 				gpu_context* d_g_state = (gpu_context*)(thread_info[dev_id].d_g_state);
-				AddReduceInputRecordGPU(d_g_state,(panda->sorted_intermediate_keyvals_arr), start_row_id, end_row_id);
+				thread_info[dev_id].start_idx = start_row_id;
+				thread_info[dev_id].end_idx = end_row_id;
+				thread_info[dev_id].panda = panda;
+
+				//Add in Reduce Input for GPU in Panda_Reduce to conserve the GPU context
+				//AddReduceInputRecordGPU(d_g_state,(panda->sorted_intermediate_keyvals_arr), start_row_id, end_row_id);
+				//ShowWarn("num_gpu_core_groups:%d  num_cpus_grpus:%d dev_id:%d",num_gpu_core_groups,num_cpus_groups, dev_id);
+
+		}//if
+
+		if (thread_info[dev_id].device_type == GPU_CARD_ACC){
+				gpu_context* d_g_state = (gpu_context*)(thread_info[dev_id].d_g_state);
+				thread_info[dev_id].start_idx = start_row_id;
+				thread_info[dev_id].end_idx = end_row_id;
+				thread_info[dev_id].panda = panda;
+
+				//Add in Reduce Input for GPU in Panda_Reduce to conserve the GPU context
+				//AddReduceInputRecordGPU(d_g_state,(panda->sorted_intermediate_keyvals_arr), start_row_id, end_row_id);
+				//ShowWarn("num_gpu_core_groups:%d  num_cpus_grpus:%d dev_id:%d",num_gpu_core_groups,num_cpus_groups, dev_id);
+
 		}//if
 
 		if (thread_info[dev_id].device_type == CPU_ACC){
 				cpu_context* d_g_state = (cpu_context*)(thread_info[dev_id].d_g_state);
 				d_g_state->sorted_keyvals_arr_len = 0;
-				//free(d_g_state->sorted_intermediate_keyvals_arr);
-				//d_g_state->sorted_intermediate_keyvals_arr = NULL;
-//ShowLog("AddReduceInputRecordCPU start_row_id:%d, end_row_id:%d num_sorted_intermediate_record:%d",start_row_id, end_row_id,num_sorted_intermediate_record);
 				AddReduceInputRecordCPU(d_g_state,(panda->sorted_intermediate_keyvals_arr), start_row_id, end_row_id);
 		}//if
-	}//for
 
-	for (int dev_id = 0; dev_id < (num_gpus+num_cpus_groups); dev_id++){
+	}//for
+	
+	//TODO
+	num_gpu_core_groups = 0;
+
+	for (int dev_id = 0; dev_id < (num_gpu_core_groups + num_gpu_card_groups + num_cpus_groups); dev_id++){
 		if (pthread_create(&(no_threads[dev_id]),NULL,Panda_Reduce,(char *)&(thread_info[dev_id]))!=0) 
 			perror("Thread creation failed!\n");
 	}//for
 		
-	for (int i=0; i < num_gpus + num_cpus_groups; i++){
+	for (int i=0; i < num_gpu_core_groups + num_gpu_card_groups + num_cpus_groups; i++){
 		void *exitstat;
 		if (pthread_join(no_threads[i],&exitstat)!=0) perror("joining failed");
 	}//for
+	
+
+	double t5 = PandaTimer();
 
 	//TODO Reduce Merge
 	///////////////////////////////////////////////////////////////////////////////////////////////////////
-	//Panda_Reduce_Merge(&thread_info[num_gpus-1]);															 //
+	//Panda_Reduce_Merge(&thread_info[num_gpu_core_groups-1]);															 //
 	///////////////////////////////////////////////////////////////////////////////////////////////////////
 	
 	int total_output_records = 0;
-	for (int dev_id = 0; dev_id<(num_gpus+num_cpus_groups); dev_id++){
+	for (int dev_id = 0; dev_id<(num_gpu_core_groups+num_cpus_groups); dev_id++){
 	
-		if (thread_info[dev_id].device_type == GPU_ACC){
+		if (thread_info[dev_id].device_type == GPU_CORE_ACC){
 				gpu_context* d_g_state = (gpu_context*)(thread_info[dev_id].d_g_state);
 				total_output_records += d_g_state->d_reduced_keyval_arr_len;
 		}//if
@@ -196,200 +329,23 @@ void PandaMetaScheduler(thread_info_t *thread_info, panda_context *panda){
 				cpu_context* d_g_state = (cpu_context*)(thread_info[dev_id].d_g_state);
 				total_output_records += d_g_state->sorted_keyvals_arr_len;
 		}//if
-		
 	}//for
-	ShowLog("number of reduce output:%d\n",total_output_records);
+
+	DoLog2Disk("Panda Map			take:%f sec",t3-t2);
+	DoLog2Disk("Panda MergeShuffle	take:%f sec",t4-t3);
+	DoLog2Disk("Panda Reduce		take:%f sec",t5-t4);
+	
+
+	ShowLog("Panda Map			take:%f sec",t3-t2);
+	ShowLog("Panda MergeShuffle	take:%f sec",t4-t3);
+	ShowLog("Panda Reduce		take:%f sec",t5-t4);
+	ShowLog("number of reduce output:%d",total_output_records);
 	ShowLog("=====panda mapreduce job finished=====");
 
 }//PandaMetaScheduler
 
 
 //Scheduler for version 0.2 depressed
-void Start_Panda_Job(job_configuration *job_conf){
-#ifdef DEV_MODE	
-	int num_gpus = job_conf->num_gpus;
-	int num_cpus_cores = job_conf->num_cpus_cores;
-	int num_cpus_group = job_conf->num_cpus_groups;
-
-	panda_context *panda = CreatePandaContext();
-	
-	panda->num_gpus = num_gpus;
-	panda->num_cpus_groups = num_cpus_group;
-	ShowLog("Start num_gpus:%d  num_cpus_groups:%d", num_gpus, num_cpus_group);
-	pthread_t *no_threads = (pthread_t*)malloc(sizeof(pthread_t)*(num_gpus + num_cpus_group));
-	thread_info_t *thread_info = (thread_info_t*)malloc(sizeof(thread_info_t)*(num_gpus + num_cpus_group));
-	
-	for (int i=0; i<num_gpus; i++){
-		thread_info[i].tid = i;
-		//thread_info[i].file_name = argv[i+1];
-		thread_info[i].num_gpus = num_gpus;
-		thread_info[i].device_type = GPU_ACC;
-		
-		cudaDeviceProp gpu_dev;
-		cudaGetDeviceProperties(&gpu_dev, i);
-		
-		//ShowLog("Configure Device ID:%d: Device Name:%s MultProcessorCount:%d sm_per_multiproc:%d", i, gpu_dev.name,gpu_dev.multiProcessorCount,sm_per_multiproc);
-
-		thread_info[i].device_name = gpu_dev.name;
-		gpu_context *d_g_state = CreateGPUContext();
-		d_g_state->matrix_size = job_conf->matrix_size;
-		d_g_state->num_mappers = job_conf->num_mappers;
-		d_g_state->num_reducers = job_conf->num_reducers;
-		thread_info[i].d_g_state = d_g_state;
-	}//for num_gpus
-	
-	
-	for (int i=num_gpus; i<num_gpus+num_cpus_group; i++){
-		thread_info[i].tid = i;
-		thread_info[i].device_type = CPU_ACC;
-		cpu_context *d_g_state = CreateCPUContext();
-		d_g_state->num_cpus_cores = num_cpus_cores;
-		thread_info[i].d_g_state = d_g_state;
-	}//for
-
-
-	///////////////////////////////////////////////////
-	double ratio = 10.0;
-	ratio = (double)(job_conf->ratio);
-	if (job_conf->auto_tuning){
-		ratio = (AutoTuningScheduler(job_conf));
-		job_conf->ratio = ratio;
-	}//if
-	
-	//////////////////////////////////////////////////
-	ShowLog("num_gpus:%d num_cpus_group:%d num_input_record:%d sizeof(int):%d  ratio:%f\n", num_gpus, num_cpus_group,job_conf->num_input_record,sizeof(int),ratio);
-
-	int *split = NULL;
-	split = (int *)malloc(sizeof(int)*(num_gpus+num_cpus_group));
-	
-	int num_input_record = job_conf->num_input_record;
-	int records_per_device = (int)(num_input_record/(num_gpus*ratio+num_cpus_group));
-	for (int i=0;i<num_gpus;i++){
-			split[i] = (int)(records_per_device*ratio*(i+1));
-	}//for
-
-	for (int i=num_gpus;i<num_gpus+num_cpus_group;i++){
-			split[i] = (int)(records_per_device*ratio*(num_gpus)+(i+1)*records_per_device);
-	}//for
-	split[num_gpus+num_cpus_group-1] = num_input_record;
-
-	printf("---	split:num_input_record:%d records_per_device:%d  ",num_input_record, records_per_device);
-	for (int i=0;i<num_gpus+num_cpus_group;i++)
-		printf("%d\t",split[i]);
-	printf("\n");
-
-	for (int dev_id = 0; dev_id<(num_gpus+num_cpus_group); dev_id++){
-		int start_row_id = 0;
-		if (dev_id>0) start_row_id = split[dev_id-1];
-
-		int end_id = split[dev_id];
-		
-		if (thread_info[dev_id].device_type == GPU_ACC){
-				gpu_context* d_g_state = (gpu_context*)(thread_info[dev_id].d_g_state);
-				//for (int i=start_row_id; i<end_id; i++){
-				//printf(":%s  keySize:%d",job_conf->input_keyval_arr[i].val, job_conf->input_keyval_arr[i].valSize);
-				AddMapInputRecordGPU(d_g_state,(job_conf->input_keyval_arr), start_row_id,end_id);
-				//}//for
-			}//if
-
-		if (thread_info[dev_id].device_type == CPU_ACC){
-				cpu_context* d_g_state = (cpu_context*)(thread_info[dev_id].d_g_state);
-				//for (int i=start_row_id;i<end_id;i++){
-				AddMapInputRecordCPU(d_g_state,(job_conf->input_keyval_arr),start_row_id, end_id);
-				//}//for
-		}//if
-	}//for
-
-	for (int dev_id = 0; dev_id<(num_gpus+num_cpus_group); dev_id++){
-		//if (thread_info[dev_id].device_type == GPU_ACC){
-		if (pthread_create(&(no_threads[dev_id]), NULL, Panda_Map, (char *)&(thread_info[dev_id])) != 0) 
-			perror("Thread creation failed!\n");
-	}//for
-
-	for (int i=0; i < num_gpus + num_cpus_group; i++){
-		void *exitstat;
-		if (pthread_join(no_threads[i],&exitstat)!=0) perror("joining failed");
-	}//for
-
-	ShowLog("start_row_id to merge!");
-	for (int i = 0; i<num_gpus; i++){
-		PandaShuffleMergeGPU((panda_context*)panda, (gpu_context*)(thread_info[i].d_g_state));
-	}//for
-
-	for (int i = num_gpus; i < num_gpus+num_cpus_group; i++){
-		PandaShuffleMergeCPU((panda_context*)panda, (cpu_context*)(thread_info[i].d_g_state));
-	}//for
-
-	ShowLog("totoal number of different intermediate records:%d",panda->sorted_keyvals_arr_len);
-	//TOD smart job for reduce ratio
-
-	//cudaThreadSynchronize();
-	//static scheduling -- split the workload between devices 
-	int num_sorted_intermediate_record = panda->sorted_keyvals_arr_len;
-	records_per_device = num_sorted_intermediate_record/(num_gpus*10+num_cpus_group);
-	for (int i=0;i<num_gpus;i++){
-			split[i] = records_per_device*10*(i+1);
-	}//for
-	for (int i=num_gpus;i<num_gpus+num_cpus_group;i++){
-			split[i] = records_per_device*10*(num_gpus)+(i+1)*records_per_device;
-	}//for
-	split[num_gpus + num_cpus_group-1] = num_sorted_intermediate_record;
-
-	for (int dev_id = 0; dev_id<(num_gpus+num_cpus_group); dev_id++){
-		int start_row_id = 0;
-		if (dev_id>0) start_row_id = split[dev_id-1];
-		int end_id = split[dev_id];
-				
-		if (thread_info[dev_id].device_type == GPU_ACC){
-				gpu_context* d_g_state = (gpu_context*)(thread_info[dev_id].d_g_state);
-				//for (int i=start_row_id; i<end_id; i++){
-				AddReduceInputRecordGPU(d_g_state,(panda->sorted_intermediate_keyvals_arr),start_row_id, end_id);
-				//}//for
-
-		}//if
-
-		if (thread_info[dev_id].device_type == CPU_ACC){
-				cpu_context* d_g_state = (cpu_context*)(thread_info[dev_id].d_g_state);
-				//for (int i=start_row_id;i<end_id;i++){
-				AddReduceInputRecordCPU(d_g_state,(panda->sorted_intermediate_keyvals_arr),start_row_id, end_id);
-				//}//for
-		}//if
-		
-
-	}//for
-
-	for (int dev_id = 0; dev_id < (num_gpus+num_cpus_group); dev_id++){
-		if (pthread_create(&(no_threads[dev_id]),NULL,Panda_Reduce,(char *)&(thread_info[dev_id]))!=0) 
-			perror("Thread creation failed!\n");
-	}//for
-		
-	for (int i=0; i < num_gpus + num_cpus_group; i++){
-		void *exitstat;
-		if (pthread_join(no_threads[i],&exitstat)!=0) perror("joining failed");
-	}//for
-	
-	///////////////////////////////////////////////////////////////////////////////////////////////////////
-	//Panda_Reduce(&thread_info[num_gpus-1]);
-	///////////////////////////////////////////////////////////////////////////////////////////////////////
-
-	ShowLog("Finishing Panda MapReduce Job...");
-	int total_output_records = 0;
-	for (int dev_id = 0; dev_id<(num_gpus+num_cpus_group); dev_id++){
-	
-		if (thread_info[dev_id].device_type == GPU_ACC){
-				gpu_context* d_g_state = (gpu_context*)(thread_info[dev_id].d_g_state);
-				total_output_records += d_g_state->d_reduced_keyval_arr_len;
-		}//if
-
-		if (thread_info[dev_id].device_type == CPU_ACC){
-				cpu_context* d_g_state = (cpu_context*)(thread_info[dev_id].d_g_state);
-				total_output_records += d_g_state->sorted_keyvals_arr_len;
-		}//if
-	}//for
-	ShowLog("there are :%d output records\n",total_output_records);
-	ShowLog("=====finish map/reduce=====");
-#endif
-}		
 
 //Ratio = Tcpu/Tgpu
 //Tcpu = (execution time on CPU cores for sampled tasks)/(#sampled tasks)
@@ -399,14 +355,14 @@ void Start_Panda_Job(job_configuration *job_conf){
 float AutoTuningScheduler(thread_info_t *thread_info, panda_context *panda){
 	
 	ShowLog("AutoTuningScheduler");
-	int num_gpus = panda->num_gpus;
+	int num_gpu_core_groups = panda->num_gpu_core_groups;
 	int num_cpus_cores = getCPUCoresNum();//job_conf->num_cpus;
 	int num_cpus_groups = panda->num_cpus_groups;
 	
-	num_gpus = 1;
+	num_gpu_core_groups = 1;
 	num_cpus_groups = 1;
 
-	pthread_t *no_threads = (pthread_t*)malloc(sizeof(pthread_t)*(num_gpus + num_cpus_groups));
+	pthread_t *no_threads = (pthread_t*)malloc(sizeof(pthread_t)*(num_gpu_core_groups + num_cpus_groups));
 	
 	int cpu_sampled_tasks_num = 0;
 	int gpu_sampled_tasks_num = 0;
@@ -417,22 +373,22 @@ float AutoTuningScheduler(thread_info_t *thread_info, panda_context *panda){
 	int cpu_index = -1;
 	int gpu_index = -1;
 
-	for (int tid=0; tid<num_gpus+num_cpus_groups; tid++){
+	for (int tid=0; tid<num_gpu_core_groups+num_cpus_groups; tid++){
 	
-		if (thread_info[tid].device_type == GPU_ACC){
+		if (thread_info[tid].device_type == GPU_CORE_ACC){
 			if (gpu_index>=0)
 				continue;
 			gpu_index = tid;
 
-			gpu_context *d_g_state = CreateGPUContext();
-			d_g_state->num_gpus = num_gpus;
+			gpu_context *d_g_state = CreateGPUCoreContext();
+			d_g_state->num_gpu_core_groups = num_gpu_core_groups;
 			thread_info[tid].d_g_state = d_g_state;
 
 			job_configuration *gpu_job_conf = (job_configuration *)(thread_info[tid].job_conf);
 			gpu_sampled_tasks_num = gpu_job_conf->num_input_record;
 			start_row_id = 0;
 			end_row_id = gpu_job_conf->num_input_record;
-			AddMapInputRecordGPU(d_g_state,(gpu_job_conf->input_keyval_arr), start_row_id, end_row_id);
+			AddMapInputRecord4GPUCore(d_g_state,(gpu_job_conf->input_keyval_arr), start_row_id, end_row_id);
 			
 		}//if
 		
@@ -490,28 +446,29 @@ float AutoTuningScheduler(thread_info_t *thread_info, panda_context *panda){
 
 void PandaDynamicMetaScheduler(thread_info_t *thread_info, panda_context *panda){
 
-	int num_gpus = panda->num_gpus;
+	int num_gpu_core_groups = panda->num_gpu_core_groups;
 	int num_cpus_groups = panda->num_cpus_groups;
-	float ratio = panda->ratio;
+
+	float ratio = panda->cpu_ratio;
+						 
+	pthread_t *no_threads = (pthread_t*)malloc(sizeof(pthread_t)*(num_gpu_core_groups + num_cpus_groups));
 	
-	pthread_t *no_threads = (pthread_t*)malloc(sizeof(pthread_t)*(num_gpus + num_cpus_groups));
-	
-	for (int dev_id=0; dev_id<(num_gpus + num_cpus_groups); dev_id++){
+	for (int dev_id=0; dev_id<(num_gpu_core_groups + num_cpus_groups); dev_id++){
 
 		int assigned_gpu_id = 0;
-		if (thread_info[dev_id].device_type == GPU_ACC){
+		if (thread_info[dev_id].device_type == GPU_CORE_ACC){
 			
 			job_configuration* gpu_job_conf = (job_configuration*)(thread_info[dev_id].job_conf);
-			gpu_context *d_g_state = CreateGPUContext();
+			gpu_context *d_g_state = CreateGPUCoreContext();
 			d_g_state->num_mappers = gpu_job_conf->num_mappers;
 			d_g_state->num_reducers = gpu_job_conf->num_reducers;
-			d_g_state->num_gpus = num_gpus;
+			d_g_state->num_gpu_core_groups = num_gpu_core_groups;
 			d_g_state->gpu_id = assigned_gpu_id;
 
 			thread_info[dev_id].tid = dev_id;
 			thread_info[dev_id].d_g_state = d_g_state;
 
-			ShowLog("Assigned Dev_ID:[%d] GPU_ACC TID:%d",assigned_gpu_id,thread_info[dev_id].tid);
+			ShowLog("Assigned Dev_ID:[%d] GPU_CORE_ACC TID:%d",assigned_gpu_id,thread_info[dev_id].tid);
 			assigned_gpu_id++;
 		}//if
 
@@ -531,16 +488,16 @@ void PandaDynamicMetaScheduler(thread_info_t *thread_info, panda_context *panda)
 	///////////////////////////////////////////////////
 	
 	
-	for (int dev_id = 0; dev_id<(num_gpus+num_cpus_groups); dev_id++){
+	for (int dev_id = 0; dev_id<(num_gpu_core_groups+num_cpus_groups); dev_id++){
 
-		if (thread_info[dev_id].device_type == GPU_ACC){
+		if (thread_info[dev_id].device_type == GPU_CORE_ACC){
 
 				job_configuration *gpu_job_conf = (job_configuration *)(thread_info[dev_id].job_conf);
 				int start_row_id = 0;
 				int end_id = gpu_job_conf->num_input_record;
 				gpu_context* d_g_state = (gpu_context*)(thread_info[dev_id].d_g_state);
 
-				AddMapInputRecordGPU(d_g_state,(gpu_job_conf->input_keyval_arr), start_row_id,end_id);
+				AddMapInputRecord4GPUCore(d_g_state,(gpu_job_conf->input_keyval_arr), start_row_id,end_id);
 				
 		}//if
 	
@@ -556,23 +513,23 @@ void PandaDynamicMetaScheduler(thread_info_t *thread_info, panda_context *panda)
 		}//if
 	}//for
 	
-	for (int dev_id = 0; dev_id<(num_gpus+num_cpus_groups); dev_id++){
+	for (int dev_id = 0; dev_id<(num_gpu_core_groups+num_cpus_groups); dev_id++){
 		if (pthread_create(&(no_threads[dev_id]), NULL, Panda_Map, (char *)&(thread_info[dev_id])) != 0) 
 			perror("Thread creation failed!\n");
 	}//for
 
-	for (int i = 0; i < num_gpus + num_cpus_groups; i++){
+	for (int i = 0; i < num_gpu_core_groups + num_cpus_groups; i++){
 		void *exitstat;
 		if (pthread_join(no_threads[i],&exitstat)!=0) perror("joining failed");
 	}//for
 
 	//ShowLog("start to merge results of GPU's and CPU's device to Panda scheduler");
-	for (int i = 0; i < num_gpus+num_cpus_groups; i++){
+	for (int i = 0; i < num_gpu_core_groups+num_cpus_groups; i++){
 
 		if (thread_info[i].device_type == CPU_ACC)
 			PandaShuffleMergeCPU((panda_context*)panda, (cpu_context*)(thread_info[i].d_g_state));
 
-		if (thread_info[i].device_type == GPU_ACC)
+		if (thread_info[i].device_type == GPU_CORE_ACC)
 			
 			((panda_context*)panda, (gpu_context*)(thread_info[i].d_g_state));
 			
@@ -580,11 +537,11 @@ void PandaDynamicMetaScheduler(thread_info_t *thread_info, panda_context *panda)
 	
 	//TODO reduce task ratio 
 	int num_sorted_intermediate_record = panda->sorted_keyvals_arr_len;
-	int records_per_device = num_sorted_intermediate_record/(num_gpus + num_cpus_groups*ratio);
+	int records_per_device = num_sorted_intermediate_record/(num_gpu_core_groups + num_cpus_groups*ratio);
 	
-	int *split = (int*)malloc(sizeof(int)*(num_gpus+num_cpus_groups));
+	int *split = (int*)malloc(sizeof(int)*(num_gpu_core_groups+num_cpus_groups));
 	
-	for (int i=0; i<num_gpus; i++){
+	for (int i=0; i<num_gpu_core_groups; i++){
 	
 				if (i==0) 
 				split[0] = records_per_device;
@@ -593,7 +550,7 @@ void PandaDynamicMetaScheduler(thread_info_t *thread_info, panda_context *panda)
 				
 	}//for
 	
-	for (int i=num_gpus; i<num_gpus+num_cpus_groups; i++){
+	for (int i=num_gpu_core_groups; i<num_gpu_core_groups+num_cpus_groups; i++){
 	
 				if (i==0) 
 				split[0] = records_per_device*ratio;
@@ -601,44 +558,46 @@ void PandaDynamicMetaScheduler(thread_info_t *thread_info, panda_context *panda)
 				split[i] = split[i-1] + records_per_device*ratio;
 								
 	}//for
-	split[num_gpus + num_cpus_groups-1] = num_sorted_intermediate_record;
+	split[num_gpu_core_groups + num_cpus_groups-1] = num_sorted_intermediate_record;
 
-	for (int dev_id = 0; dev_id<(num_gpus+num_cpus_groups); dev_id++){
+	for (int dev_id = 0; dev_id<(num_gpu_core_groups+num_cpus_groups); dev_id++){
 	
 		int start_row_id = 0;
 		if (dev_id>0) start_row_id = split[dev_id-1];
 		int end_row_id = split[dev_id];
 				
-		if (thread_info[dev_id].device_type == GPU_ACC){
+		if (thread_info[dev_id].device_type == GPU_CORE_ACC){
 				gpu_context* d_g_state = (gpu_context*)(thread_info[dev_id].d_g_state);
+				ShowLog("start:%d end:%d",start_row_id,end_row_id);
 				AddReduceInputRecordGPU(d_g_state,(panda->sorted_intermediate_keyvals_arr), start_row_id, end_row_id);
 		}//if
 
 		if (thread_info[dev_id].device_type == CPU_ACC){
 				cpu_context* d_g_state = (cpu_context*)(thread_info[dev_id].d_g_state);
+				ShowLog("start:%d end:%d",start_row_id,end_row_id);
 				AddReduceInputRecordCPU(d_g_state,(panda->sorted_intermediate_keyvals_arr), start_row_id, end_row_id);
 		}//if
 	}//for
 
-	for (int dev_id = 0; dev_id < (num_gpus+num_cpus_groups); dev_id++){
+	for (int dev_id = 0; dev_id < (num_gpu_core_groups+num_cpus_groups); dev_id++){
 		if (pthread_create(&(no_threads[dev_id]),NULL,Panda_Reduce,(char *)&(thread_info[dev_id]))!=0) 
 			perror("Thread creation failed!\n");
 	}//for
 		
-	for (int i=0; i < num_gpus + num_cpus_groups; i++){
+	for (int i=0; i < num_gpu_core_groups + num_cpus_groups; i++){
 		void *exitstat;
 		if (pthread_join(no_threads[i],&exitstat)!=0) perror("joining failed");
 	}//for
 
 	//TODO Reduce Merge
 	///////////////////////////////////////////////////////////////////////////////////////////////////////
-	//Panda_Reduce_Merge(&thread_info[num_gpus-1]);															 //
+	//Panda_Reduce_Merge(&thread_info[num_gpu_core_groups-1]);															 //
 	///////////////////////////////////////////////////////////////////////////////////////////////////////
 	
 	int total_output_records = 0;
-	for (int dev_id = 0; dev_id<(num_gpus+num_cpus_groups); dev_id++){
+	for (int dev_id = 0; dev_id<(num_gpu_core_groups+num_cpus_groups); dev_id++){
 	
-		if (thread_info[dev_id].device_type == GPU_ACC){
+		if (thread_info[dev_id].device_type == GPU_CORE_ACC){
 				gpu_context* d_g_state = (gpu_context*)(thread_info[dev_id].d_g_state);
 				total_output_records += d_g_state->d_reduced_keyval_arr_len;
 		}//if

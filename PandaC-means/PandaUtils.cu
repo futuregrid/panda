@@ -32,6 +32,10 @@
 #include <sys/time.h>
 #endif 
 
+#ifndef __PANDAUTILS_CU__
+#define __PANDAUTILS_CU__
+
+
 
 int getGPUCoresNum() { 
 	//assert(tid<total);
@@ -81,9 +85,6 @@ int getCPUCoresNum() {
 
 
 
-
-#ifndef __PANDAUTILS_CU__
-#define __PANDAUTILS_CU__
 
 void DoDiskLog(const char *str){
 	FILE *fptr;
@@ -201,23 +202,17 @@ __global__ void printData2(gpu_context d_g_state ){
 #endif
 
 
-__global__ void printData3(float *C ){
+__global__ void printData3(gpu_context d_g_state){
 
-	//if(TID==1){
-	printf("TID ==1  printC \n");
 	
-	
-	for (int i=0;i<10;i++){
-		printf("%f ",C[i]);
-	}
-	printf("\n");
-
-	//}
-	//printf("printData3 TID:%d key:%s",TID, p1->key);
-	//for (int i=0;i<p1->val_arr_len;i++)
-	//	printf("printData3 :TID:%d, i:%d  key:%s, val:%d\n",TID, i,p1->key, *(int*)p1->vals[i].val);
-	//printf("\n");
-	//printf("printData 3 TID:%d i:[%d] keySize:%d key %s val:%d\n",TID,i, p1->keySize, p1->key, *(int*)(p1->vals[i].val));
+	ShowWarn("))))))))))))))))))))))))))))))");
+	__syncthreads();
+	ShowWarn("sorted_key_arr_len:%d d_sorted_keyvals_arr_len:%d", d_g_state.d_reduced_keyval_arr_len,d_g_state.d_sorted_keyvals_arr_len);
+									  
+	__syncthreads();
+	ShowWarn(" +++++++++>d_pos_arr_4_sorted_keyval_pos_arr[0]:%d", 
+		 d_g_state.d_pos_arr_4_sorted_keyval_pos_arr[0]);
+	__syncthreads();
 	
 }//printData
 
