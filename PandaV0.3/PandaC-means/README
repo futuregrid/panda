@@ -1,0 +1,7 @@
+export CUDA_HOME=/opt/cuda/
+export PATH=$CUDA_HOME/bin:$PATH
+
+make
+
+./panda_cmeans
+usage: ./panda_cmeans [numPt]  [cpu/gpu ratio] [numMapperPerCPU][numMapperPerGPU] [numGPU] [numCPU]
