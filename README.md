@@ -17,7 +17,7 @@ the prototype run SIMD computation on GPUs and CPUs on multiple nodes.
 
 refers to readme file for installation
 
-== Installation&Deployment ==
+== Installation&Deployment for version 0.3 ==
 
 1) Install NVIDIA CUDA Driver (available from http://www.nvidia.com/object/cuda_get.html)                                 
 
@@ -34,4 +34,4 @@ refers to readme file for installation
 
 3) Running the Code
 
-    ./panda_wordcount
+    ./Panda_WordCount
