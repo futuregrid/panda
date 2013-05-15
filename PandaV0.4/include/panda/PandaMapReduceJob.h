@@ -11,7 +11,6 @@
 #include <vector>
 #include "Panda.h"
 
-
 namespace panda
 {
 

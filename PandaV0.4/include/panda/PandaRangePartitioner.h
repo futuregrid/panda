@@ -31,6 +31,6 @@ namespace panda
   };
 }
 
-#include <panda/PandaRangerPartitioner.cxx>
+//#include <panda/PandaRangerPartitioner.cxx>
 
 #endif

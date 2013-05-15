@@ -17,72 +17,69 @@ namespace panda
 	void PandaMPIMessage::setPnc(panda_node_context *pnc)
 	{
 		this->pnc = pnc;
-	}
+	}//void
 
 	void PandaMPIMessage::MsgInit(){
-
 		Message::MsgInit();
 		zeroReqs.resize(commSize);
 		zeroCount[0]  = zeroCount[1] = zeroCount[2] = 0;
-
-	}
+	}//void
 
 	void PandaMPIMessage::MsgFinalize(){
 
-	}
-
+	}//void
 
 	void PandaMPIMessage::getFinalDataSize(int & keySize, int & valSize) const {}
 	void PandaMPIMessage::getFinalDataSize(int & keySize, int & valSize, int & numKeys, int & numVals) const {}
 	void PandaMPIMessage::getFinalData(void * keyStorage, void * valStorage)const {}
 	void PandaMPIMessage::getFinalData(void * keyStorage, void * valStorage, int * keySizes, int * valSizes)const {}
 
-
-
 	oscpp::AsyncIORequest * PandaMPIMessage::MsgFinish()
 	{
-    return sendTo(commRank, NULL, NULL, NULL,-1, -1,-1);
+    	return sendTo(commRank, NULL, NULL, NULL, -1, -1, -1);
 	}//oscpp
 
   void PandaMPIMessage::run()
   {
-    //pnc -> received data ??
-	int finishedWorkers		= 0;
-    bool  * workerDone      = new bool[commSize];
-    bool  * recvingCount    = new bool[commSize];
-    int   * counts          = new int [commSize * 3];
-    int  ** keyRecv         = new int*[commSize];
-    int  ** valRecv         = new int*[commSize];
+    	//pnc -> received data 
+	int finishedWorkers	= 0;
+    	bool  * workerDone      = new bool[commSize];
+    	bool  * recvingCount    = new bool[commSize];
+    	int   * counts          = new int [commSize * 3];
+    	int  ** keyRecv         = new int*[commSize];
+    	int  ** valRecv         = new int*[commSize];
 	int  ** keyPosKeySizeValPosValSize = new int*[commSize];
 
-    MPI_Request * recvReqs  = new MPI_Request[commSize * 3];
-
+    	MPI_Request * recvReqs  = new MPI_Request[commSize * 3];
+	ShowLog("commSize:%d-----------------",commSize);
 	for (int i = 0; i < commSize; ++i)
-    {
-      workerDone[i]   = false;
-      recvingCount[i] = true;
-      keyRecv[i] = NULL;
-      valRecv[i] = NULL;
-	  keyPosKeySizeValPosValSize[i] = NULL;
-      MPI_Irecv(counts + i * 3, 3, MPI_INT, i, 0, MPI_COMM_WORLD, recvReqs + i * 3);
-    }//for
+    	{
+      	workerDone[i]   = false;
+      	recvingCount[i] = true;
+      	keyRecv[i] 	= NULL;
+      	valRecv[i] 	= NULL;
+  	keyPosKeySizeValPosValSize[i] = NULL;
+      	MPI_Irecv(counts + i * 3, 3, MPI_INT, i, 0, MPI_COMM_WORLD, recvReqs + i * 3);
+	ShowLog("MPI_Irecv counts[0]:%d", counts[0]);
+    	}//for
 
-	innerLoopDone = false;
-    
+	innerLoopDone 	= false;
+   	int loopc 	= 0; 
 	while (!innerLoopDone || finishedWorkers < commSize)
-    {
-      poll(finishedWorkers, workerDone, recvingCount, counts, keyRecv, valRecv, keyPosKeySizeValPosValSize, recvReqs);
-      pollSends();
-    }//while
+    	{
+      	poll(finishedWorkers, workerDone, recvingCount, counts, keyRecv, valRecv, keyPosKeySizeValPosValSize, recvReqs);
+      	//ShowLog(" after poll finishedWorkers:%d loop:%d\n", finishedWorkers, loopc++);	
+	pollSends();
+    	}//while
 
-    MPI_Waitall(commSize, &zeroReqs[0], MPI_STATUSES_IGNORE);
+    	MPI_Waitall(commSize, &zeroReqs[0], MPI_STATUSES_IGNORE);
 
-    delete [] workerDone;
-    delete [] recvingCount;
-    delete [] counts;
-    delete [] keyRecv;
-    delete [] valRecv;
-    delete [] recvReqs;
+    	delete [] workerDone;
+    	delete [] recvingCount;
+    	delete [] counts;
+    	delete [] keyRecv;
+    	delete [] valRecv;
+    	delete [] recvReqs;
 
 	}
   
@@ -145,7 +142,7 @@ namespace panda
       {
         data->valsBuff = vals;
       }
-	  if (maxlen > 0 && keyPosKeySizeValPosValSize)
+	  if (maxlen > 0 && keyPosKeySizeValPosValSize !=NULL)
 	  {
 		  data->keyPosKeySizeValPosValSize = new int[4*maxlen];
 		  memcpy(data->keyPosKeySizeValPosValSize, keyPosKeySizeValPosValSize, 4*maxlen);
@@ -166,15 +163,15 @@ namespace panda
 
     if (rank == commRank)
     {
-    //  data->counts = NULL;
+      //data->counts = NULL;
     }
     else
     {
-      //data->counts = new int[3];
+      //data->counts  = new int[3];
 	  data->counts[0] = maxlen;
       data->counts[1] = keySize;
       data->counts[2] = valSize;
-	  data->done[0] = data->done[1] = data->done[2] = data->done[3] = false;
+	  data->done[0]	  = data->done[1] = data->done[2] = data->done[3] = false;
     }//else
 	PandaMessageIORequest * req = new PandaMessageIORequest(data->flag, data->waiting, data->counts[0]*4 + data->counts[1] + data->counts[2]);
     data->cond = &req->condition();
@@ -190,7 +187,7 @@ namespace panda
   {
 
 	keyvals_t *sorted_intermediate_keyvals_arr = pnc->sorted_key_vals.sorted_intermediate_keyvals_arr;
-	int sorted_intermediate_keyvals_arr_len = pnc->sorted_key_vals.sorted_keyvals_arr_len;
+	int sorted_intermediate_keyvals_arr_len    = pnc->sorted_key_vals.sorted_keyvals_arr_len;
 	
 	char *sorted_keys_buff = (char *)pnc->sorted_key_vals.h_sorted_keys_shared_buff;
 	char *sorted_vals_buff = (char *)pnc->sorted_key_vals.h_sorted_vals_shared_buff;
@@ -210,33 +207,38 @@ namespace panda
 
     if (data == NULL) return false;
 
-
     if (data->rank == commRank)
     {
-	  if (data->counts[0] >= 0)
-      { //data->counts[0] >= 0
-	    //send to local host
-        //privateAdd(data->keys, data->vals, data->keySize, data->valSize);
-      } //if
-      else
-      {
-		//TODO didn't know what this is used for
+	ShowLog("data->counts[0]:%d send data to local if counts[0]==0",data->counts[0]);
+
+  	if (data->counts[0] >= 0)
+        {     //data->counts[0] >= 0
+	      //send to local host
+              //privateAdd(data->keys, data->vals, data->keySize, data->valSize);
+        }     //if
+        else
+        {
+	      //TODO didn't know what this is used for
         innerLoopDone = true;
         for (int i = 0; i < commSize; ++i)
         {
-          MPI_Isend(zeroCount, 2, MPI_INT, i, 0, MPI_COMM_WORLD, &zeroReqs[i]);
+          MPI_Isend(zeroCount, 3, MPI_INT, i, 0, MPI_COMM_WORLD, &zeroReqs[i]);
         }//for
-      }//
+      	}//
 
       data->cond->lockMutex();
-      if (*data->waiting) data->cond->broadcast();
+      if (*data->waiting) {
+	data->cond->broadcast();
+	ShowLog(" !!!!!!!!!!!!!!! data->cond->broadcast");
+      }//if
+
       *data->flag = true;
       data->cond->unlockMutex();
       delete data;
     }//if
     else
     {
-      MPI_Isend(data->counts,      3,    MPI_INT,   data->rank,  0,  MPI_COMM_WORLD, &data->reqs[0]);
+      	  MPI_Isend(data->counts,      3,    MPI_INT,   data->rank,  0,  MPI_COMM_WORLD, &data->reqs[0]);
 	  MPI_Isend(data->keysBuff,    data->keyBuffSize, MPI_CHAR, data->rank, 0, MPI_COMM_WORLD, &data->reqs[1]);
 	  MPI_Isend(data->valsBuff,    data->valBuffSize, MPI_CHAR, data->rank, 0, MPI_COMM_WORLD, &data->reqs[2]);
 	  MPI_Isend(data->keyPosKeySizeValPosValSize, data->counts[0]*4, MPI_INT, data->rank, 0, MPI_COMM_WORLD, &data->reqs[3]);
@@ -265,9 +267,9 @@ namespace panda
         delete [] data->counts;
         if (copySendData)
         {
-			if (data->keysBuff != NULL) delete [] reinterpret_cast<char * >(data->keysBuff);
-			if (data->valsBuff != NULL) delete [] reinterpret_cast<char * >(data->valsBuff);
-			if (data->keyPosKeySizeValPosValSize != NULL) delete [] reinterpret_cast<char *>(data->keyPosKeySizeValPosValSize);
+		if (data->keysBuff != NULL) delete [] reinterpret_cast<char * >(data->keysBuff);
+		if (data->valsBuff != NULL) delete [] reinterpret_cast<char * >(data->valsBuff);
+		if (data->keyPosKeySizeValPosValSize != NULL) delete [] reinterpret_cast<char *>(data->keyPosKeySizeValPosValSize);
         }//if
         delete data;
       }//if
@@ -282,11 +284,11 @@ namespace panda
 	void PandaMPIMessage::pollSends()
 	{
 	
-    const int MAX_SENDS_PER_LOOP = 20;
-    int index = 0;
-    while (++index < MAX_SENDS_PER_LOOP && pollUnsent()) { }
-    index = 0;
-    pollPending();
+    	const int MAX_SENDS_PER_LOOP = 20;
+    	int index = 0;
+    	while (++index < MAX_SENDS_PER_LOOP && pollUnsent()) { }
+    	index = 0;
+    	pollPending();
 
 	}//void
 
@@ -296,7 +298,7 @@ namespace panda
                                int *  const counts,
                                int ** keyRecv,
                                int ** valRecv,
-							   int ** keyPosKeySizeValPosValSize,
+			   	int ** keyPosKeySizeValPosValSize,
                                MPI_Request * recvReqs)
   {
     pollSends();
@@ -307,10 +309,13 @@ namespace panda
     for (int i = 0; i < commSize; ++i)
     {
       if (workerDone[i]) continue;
+
       if (recvingCount[i])
       {
 
         MPI_Test(recvReqs + i * 3, &flag, stat);
+	if (flag >0)
+	ShowLog("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!flag:%d   counts[0]:%d", flag, counts[0]);
 
         if (flag)
         {
@@ -327,8 +332,8 @@ namespace panda
             keyRecv[i] = new int[counts[i * 3 + 0] / sizeof(int)];
             valRecv[i] = new int[counts[i * 3 + 1] / sizeof(int)];
 
-            MPI_Irecv(keyRecv[i], counts[i * 2 + 0], MPI_CHAR, i, 0, MPI_COMM_WORLD, recvReqs + i * 2 + 0);
-            MPI_Irecv(valRecv[i], counts[i * 2 + 1], MPI_CHAR, i, 0, MPI_COMM_WORLD, recvReqs + i * 2 + 1);
+            MPI_Irecv(keyRecv[i], counts[i * 3 + 0], MPI_CHAR, i, 0, MPI_COMM_WORLD, recvReqs + i * 3 + 0);
+            MPI_Irecv(valRecv[i], counts[i * 3 + 1], MPI_CHAR, i, 0, MPI_COMM_WORLD, recvReqs + i * 3 + 1);
           }//else
         }//if
       }//if
@@ -339,7 +344,7 @@ namespace panda
         {
           //privateAdd(keyRecv[i], valRecv[i], counts[i * 2 + 0], counts[i * 2 + 1]);
           recvingCount[i] = true;
-          MPI_Irecv(counts + i * 2, 2, MPI_INT, i, 0, MPI_COMM_WORLD, recvReqs + i * 2);
+          MPI_Irecv(counts + i * 3, 3, MPI_INT, i, 0, MPI_COMM_WORLD, recvReqs + i * 3);
           delete [] keyRecv[i];
           delete [] valRecv[i];
         }//MPI_Testall
@@ -427,14 +432,13 @@ namespace panda
     pendingIO = newPending;
   }//void
 
-  
-
   void PandaMessage::pollSends()
   {
     const int MAX_SENDS_PER_LOOP = 20;
     int index = 0;
     while (++index < MAX_SENDS_PER_LOOP && pollUnsent()) { }
     index = 0;
+    ShowLog("-------------------------------------after pollUnsent");
     pollPending();
   }//void
 
@@ -628,12 +632,10 @@ namespace panda
     delete [] finalKeys;
     delete [] finalVals;
   }//void
-
   
-
   void PandaMessage::run()
   {
-	//run 
+    //run 
     int finishedWorkers = 0;
     bool  * workerDone      = new bool[commSize];
     bool  * recvingCount    = new bool[commSize];

@@ -19,7 +19,7 @@
 
 #include "Panda.h"
 //Try with CUDA 5.0 but still does not work. 
-#include "../UserAPI.cu"
+#include "UserAPI.cu"
 #include "Global.h"
 
 //----------------------------------------------
@@ -515,11 +515,13 @@ void AddPandaTask(job_configuration* job_conf,
 	job_conf->num_input_record++;
 	
 }
-
+ 
 
 void AddReduceTask4GPU(panda_gpu_context* pgc, panda_node_context *pnc, int start_row_id, int end_row_id){
 
-	keyvals_t * sorted_intermediate_keyvals_arr = pnc->sorted_intermediate_keyvals_arr;
+	keyvals_t * sorted_intermediate_keyvals_arr = pnc->sorted_key_vals.sorted_intermediate_keyvals_arr;
+	end_row_id = pnc->sorted_key_vals.sorted_keyvals_arr_len;
+	
 
 	int total_count = 0;
 	for(int i=start_row_id;i<end_row_id;i++){
@@ -728,7 +730,6 @@ void AddMapInputRecordCPU(cpu_context* d_g_state,
 
 void AddReduceInputRecordCPU(cpu_context* d_g_state,
 						keyvals_t *kv_p, int start_row_id, int end_row_id){
-	
 
     if (end_row_id<start_row_id){	ShowError("error! end_row_id<=start_row_id");		return;	}
 	int len = d_g_state->sorted_keyvals_arr_len;
@@ -743,14 +744,36 @@ void AddReduceInputRecordCPU(cpu_context* d_g_state,
 		d_g_state->sorted_intermediate_keyvals_arr[i].key = kv_p[start_row_id+i-len].key;
 		d_g_state->sorted_intermediate_keyvals_arr[i].vals = kv_p[start_row_id+i-len].vals;
 		d_g_state->sorted_intermediate_keyvals_arr[i].val_arr_len = kv_p[start_row_id+i-len].val_arr_len;
+		
 		//ShowLog("key:%s vals_arr_len:%d",
 		//	d_g_state->sorted_intermediate_keyvals_arr[i].key, d_g_state->sorted_intermediate_keyvals_arr[i].val_arr_len);
 		//for (int j=0;j<d_g_state->sorted_intermediate_keyvals_arr[i].val_arr_len;j++)
 		//	printf("val:%d  ",*(int*)(kv_p[start_row_id+i-len].vals[j].val));
 		//printf("\n");
+
 	}//for
 	d_g_state->sorted_keyvals_arr_len = len + end_row_id-start_row_id;
-}
+}///void 
+
+
+
+__device__ void PandaGPUEmitReduceOutput(void*		key, 
+						void*		val, 
+						int		keySize, 
+						int		valSize,
+						panda_gpu_context *pgc){
+						
+		    keyval_t *p = &(pgc->reduced_key_vals.d_reduced_keyval_arr[TID]);
+			p->keySize = keySize;
+			p->key = malloc(keySize);
+			memcpy(p->key,key,keySize);
+			p->valSize = valSize;
+			p->val = malloc(valSize);
+			memcpy(p->val,val,valSize);
+			//printf("[gpu output]: key:%s  val:%d\n",key,*(int *)val);
+
+}//__device__ 
+
 
 
 __device__ void GPUEmitReduceOuput  (void*		key, 
@@ -1227,8 +1250,7 @@ __global__ void GPUCardMapPartitioner(gpu_context d_g_state){
 
 
 
-
-__global__ void GPUMapPartitioner(panda_gpu_context pgc)
+__global__ void ExecutePandaGPUMapPartitioner(panda_gpu_context pgc)
 {
 
 	//ShowLog("gridDim.x:%d gridDim.y:%d gridDim.z:%d blockDim.x:%d blockDim.y:%d blockDim.z:%d blockIdx.x:%d blockIdx.y:%d blockIdx.z:%d\n",
@@ -1291,16 +1313,16 @@ __global__ void GPUMapPartitioner(panda_gpu_context pgc)
 	}//for
 }
 
-void GPUMapPartitionerHost(panda_gpu_context d_g_state, dim3 grids, dim3 blocks)
+void StartPandaGPUMapPartitioner(panda_gpu_context pgc, dim3 grids, dim3 blocks)
 {
-	GPUMapPartitioner<<<grids,blocks>>>(d_g_state);
+   ExecutePandaGPUMapPartitioner<<<grids,blocks>>>(pgc);
 }
 
 //-------------------------------------------------
 //called by user defined map function
 //-------------------------------------------------
 //TODO  9/11/2012  merge threads and blocks code into the same place. 
-
+#if 0
 __global__ void GPUMapPartitioner(gpu_context d_g_state)
 {	
 	
@@ -1363,6 +1385,9 @@ __global__ void GPUMapPartitioner(gpu_context d_g_state)
 	}//for
 	//if(TID==0) ShowWarn("hi 3");
 }//GPUMapPartitioner
+
+#endif
+
 
 void RunGPUCardMapFunction(gpu_card_context* d_g_state,int curIter, int totalIter){
 
@@ -1465,6 +1490,51 @@ void RunGPUMapTasksHost(panda_gpu_context pgc, int curIter, int totalIter, dim3 
 	RunGPUMapTasks<<<grids,blocks>>>(pgc, totalIter -1 - curIter, totalIter);
 
 }//void
+
+__global__ void PandaRunGPUMapTasks(panda_gpu_context pgc, int curIter, int totalIter)
+{	
+		
+	//ShowLog("gridDim.x:%d gridDim.y:%d gridDim.z:%d blockDim.x:%d blockDim.y:%d blockDim.z:%d blockIdx.x:%d blockIdx.y:%d blockIdx.z:%d\n",
+	//  gridDim.x,gridDim.y,gridDim.z,blockDim.x,blockDim.y,blockDim.z,blockIdx.x,blockIdx.y,blockIdx.z);
+	int num_records_per_thread = (pgc.input_key_vals.num_input_record + (gridDim.x*blockDim.x*blockDim.y)-1)/(gridDim.x*blockDim.x*blockDim.y);
+	int block_start_idx = num_records_per_thread * blockIdx.x * blockDim.x * blockDim.y;
+	int thread_start_idx = block_start_idx 
+		+ ((threadIdx.y*blockDim.x + threadIdx.x)/STRIDE)*num_records_per_thread*STRIDE
+		+ ((threadIdx.y*blockDim.x + threadIdx.x)%STRIDE);
+
+	//ShowLog("num_records_per_thread:%d block_start_idx:%d gridDim.x:%d gridDim.y:%d gridDim.z:%d blockDim.x:%d blockDim.y:%d blockDim.z:%d",num_records_per_thread, block_start_idx, gridDim.x,gridDim.y,gridDim.z,blockDim.x,blockDim.y,blockDim.z);
+	int thread_end_idx = thread_start_idx + num_records_per_thread*STRIDE;
+	if (thread_end_idx > pgc.input_key_vals.num_input_record)
+		thread_end_idx = pgc.input_key_vals.num_input_record;
+		
+	if (thread_start_idx + curIter*STRIDE >= thread_end_idx)
+		return;
+	
+	for(int map_task_idx = thread_start_idx + curIter*STRIDE; map_task_idx < thread_end_idx; map_task_idx += totalIter*STRIDE){
+		char *key = (char *)(pgc.input_key_vals.d_input_keys_shared_buff) + pgc.input_key_vals.d_input_keyval_pos_arr[map_task_idx].keyPos;
+		char *val = (char *)(pgc.input_key_vals.d_input_vals_shared_buff) + pgc.input_key_vals.d_input_keyval_pos_arr[map_task_idx].valPos;
+		int valSize = pgc.input_key_vals.d_input_keyval_pos_arr[map_task_idx].valSize;
+		int keySize = pgc.input_key_vals.d_input_keyval_pos_arr[map_task_idx].keySize;
+		
+		//ShowWarn("valSize:%d keySize:%d",valSize,keySize);
+		
+		///////////////////////////////////////////////////////////////////////////
+		//gpu_core_map(key, val, keySize, valSize, &d_g_state, map_task_idx);		//
+		gpu_core_map(key, val, keySize, valSize, &pgc, map_task_idx);				//
+		///////////////////////////////////////////////////////////////////////////
+	}//for
+
+	keyval_arr_t *kv_arr_p = pgc.intermediate_key_vals.d_intermediate_keyval_arr_arr_p[thread_start_idx];
+	//char *shared_buff = (char *)(kv_arr_p->shared_buff);
+	//int shared_arr_len = *kv_arr_p->shared_arr_len;
+	//int shared_buff_len = *kv_arr_p->shared_buff_len;
+
+	pgc.intermediate_key_vals.d_intermediate_keyval_total_count[thread_start_idx] = *kv_arr_p->shared_arr_len;
+
+	//__syncthreads();
+}//GPUMapPartitioner
+
+
 
 __global__ void RunGPUMapTasks(gpu_context d_g_state, int curIter, int totalIter)
 {	
@@ -1939,6 +2009,7 @@ int StartGPUCardMap(gpu_card_context *d_g_state)
 
 int StartGPUCoreMap(gpu_context *d_g_state)
 {		
+#if 0
 	//-------------------------------------------------------
 	//0, Check status of d_g_state;
 	//-------------------------------------------------------
@@ -2016,6 +2087,7 @@ int StartGPUCoreMap(gpu_context *d_g_state)
 		
 	}//for
 	ShowLog("GPU_ID:[%d] Done %d Tasks",d_g_state->gpu_id,d_g_state->num_input_record);
+#endif
 	return 0;
 }//int 
 
@@ -2023,10 +2095,10 @@ void DestroyDGlobalState(gpu_context * d_g_state){
 	
 }//void 
 
-void StartGPUCombiner(panda_gpu_context * pgc){
+void ExecutePandaGPUCombiner(panda_gpu_context * pgc){
 
 	double t1 = PandaTimer();
-	ShowLog("state->num_input_record:%d",pgc->input_key_vals.num_input_record);
+	//ShowLog("state->num_input_record:%d",pgc->input_key_vals.num_input_record);
 	checkCudaErrors(cudaMemset(pgc->intermediate_key_vals.d_intermediate_keyval_total_count,0,pgc->input_key_vals.num_input_record*sizeof(int)));
 
 	int numGPUCores = getGPUCoresNum();
@@ -2038,6 +2110,10 @@ void StartGPUCombiner(panda_gpu_context * pgc){
 
 	cudaThreadSynchronize();
 	double t2 = PandaTimer();
+
+	//int *buff;
+	//checkCudaErrors(cudaMalloc(
+	//	(void **)&buff,100*sizeof(int)));
 
 	//ShowLog("GPU_ID:[%d] GPUCombiner take:%f sec",state->gpu_id, t2-t1);
 
@@ -2060,27 +2136,29 @@ void StartGPUCombiner(gpu_context * state){
 	double t2 = PandaTimer();
 	ShowLog("GPU_ID:[%d] GPUCombiner take:%f sec",state->gpu_id, t2-t1);
 
-}
+}//void StartGPUCombiner(gpu_context *state)
 
 
-void StartGPUShuffle( panda_gpu_context * pgc){
+void StartGPUShuffle(panda_gpu_context * pgc){
 	
 	double t1 = PandaTimer();
-	Shuffle4GPUOutput(pgc);
+	ExecutePandaGPUShuffle(pgc);
 	double t2 = PandaTimer();
 	//ShowLog("GPU_ID:[%d] GPUShuffle take %f sec", state->gpu_id,t2-t1);
 	
 }//void
 
+#if 0
 void StartGPUShuffle(gpu_context * state){
 	
 	gpu_context* d_g_state = state;
 	double t1 = PandaTimer();
-	Shuffle4GPUOutput(d_g_state);
+	ExecutePandaGPUShuffle(d_g_state);
 	double t2 = PandaTimer();
 	ShowLog("GPU_ID:[%d] GPUShuffle take %f sec", state->gpu_id,t2-t1);
 	
 }//void
+#endif
 	
 
 
@@ -2236,7 +2314,6 @@ void *RunPandaCPUMapThread(void *ptr){
 
 	}//for
 
-
 	for (int map_idx = panda_cpu_task_info->start_row_idx; map_idx < panda_cpu_task_info->end_row_idx; map_idx++){
 
 		keyval_t *kv_p = (keyval_t *)(&(cpu_job_conf->input_keyval_arr[map_idx]));
@@ -2252,7 +2329,8 @@ void *RunPandaCPUMapThread(void *ptr){
 //http://stackoverflow.com/questions/9139932/cuda-kernels-using-pthreads-missing-configuration-error
 	
 void * Panda_Reduce(void *ptr){
-	
+
+#if 0
 	//GPU Context of Threads may conflict with each other.  
 	
 	thread_info_t *thread_info = (thread_info_t *)ptr;
@@ -2279,6 +2357,8 @@ void * Panda_Reduce(void *ptr){
 		ShowLog("Start GPU Reduce Tasks.  Number of Reduce Tasks:%d Tid:%d gpu_id:%d num_gpu_core_groups:%d",d_g_state->d_sorted_keyvals_arr_len, tid, gpu_id, num_gpu_core_groups);
 		StartGPUReduce(d_g_state);
 
+
+
 	}//if
 		
 	if(thread_info->device_type == CPU_ACC){
@@ -2295,9 +2375,9 @@ void * Panda_Reduce(void *ptr){
 			keyvals_t *kv_p = (keyvals_t *)(&(d_g_state->sorted_intermediate_keyvals_arr[map_idx]));
 			if (kv_p->val_arr_len <=0) ShowError("kv_p->val_arr_len <=0");
 			else	cpu_reduce(kv_p->key, kv_p->vals, kv_p->keySize, kv_p->val_arr_len, d_g_state);
-
 		}//for
 	}//if	
+#endif
 
 	return NULL;
 }//void
@@ -2305,15 +2385,62 @@ void * Panda_Reduce(void *ptr){
 
 __device__ void *GetVal(void *vals, int4* interOffsetSizes, int keyIndex, int valStartIndex)
 {
-}
+}//__device__
 
 __device__ void *GetKey(void *key, int4* interOffsetSizes, int keyIndex, int valStartIndex)
 {
-}
+}//__device__
 
 //-------------------------------------------------------
 //Reducer
 //-------------------------------------------------------
+
+__global__ void PandaReducePartitioner(panda_gpu_context pgc)
+{
+	//ShowError("ReducePartitioner Panda_GPU_Context");
+	//int num_records_per_thread = (d_g_state.d_sorted_keyvals_arr_len + (gridDim.x*blockDim.x*blockDim.y)-1)/(gridDim.x*blockDim.x*blockDim.y);
+	int num_records_per_thread = (pgc.sorted_key_vals.d_sorted_keyvals_arr_len + (gridDim.x*blockDim.x*blockDim.y)-1)/(gridDim.x*blockDim.x*blockDim.y);
+	int block_start_idx = num_records_per_thread * blockIdx.x * blockDim.x * blockDim.y;
+	int thread_start_idx = block_start_idx 
+		+ ((threadIdx.y*blockDim.x + threadIdx.x)/STRIDE)*num_records_per_thread*STRIDE
+		+ ((threadIdx.y*blockDim.x + threadIdx.x)%STRIDE);
+
+	int thread_end_idx = thread_start_idx + num_records_per_thread*STRIDE;
+	
+	if (thread_end_idx > pgc.sorted_key_vals.d_sorted_keyvals_arr_len)
+		thread_end_idx = pgc.sorted_key_vals.d_sorted_keyvals_arr_len;
+
+	if (thread_start_idx >= thread_end_idx)
+		return;
+
+	int start_idx, end_idx;
+	for(int reduce_task_idx=thread_start_idx; reduce_task_idx < thread_end_idx; reduce_task_idx+=STRIDE){
+
+		if (reduce_task_idx==0)
+			start_idx = 0;
+		else
+			//start_idx = d_g_state.d_pos_arr_4_sorted_keyval_pos_arr[reduce_task_idx-1];
+			start_idx = pgc.sorted_key_vals.d_pos_arr_4_sorted_keyval_pos_arr[reduce_task_idx-1];
+		end_idx = pgc.sorted_key_vals.d_pos_arr_4_sorted_keyval_pos_arr[reduce_task_idx];
+		val_t *val_t_arr = (val_t*)malloc(sizeof(val_t)*(end_idx-start_idx));
+		
+		int keySize = pgc.sorted_key_vals.d_keyval_pos_arr[start_idx].keySize;
+		int keyPos = pgc.sorted_key_vals.d_keyval_pos_arr[start_idx].keyPos;
+		void *key = (char*)pgc.sorted_key_vals.d_sorted_keys_shared_buff+keyPos;
+				
+		for (int index = start_idx;index<end_idx;index++){
+			int valSize = pgc.sorted_key_vals.d_keyval_pos_arr[index].valSize;
+			int valPos = pgc.sorted_key_vals.d_keyval_pos_arr[index].valPos;
+			val_t_arr[index-start_idx].valSize = valSize;
+			val_t_arr[index-start_idx].val = (char*)pgc.sorted_key_vals.d_sorted_vals_shared_buff + valPos;
+		}   //for
+		if( end_idx - start_idx == 0) ShowError("gpu_reduce valCount ==0");
+		//else gpu_reduce(key, val_t_arr, keySize, end_idx-start_idx, d_g_state);
+		else panda_gpu_reduce(key, val_t_arr, keySize, end_idx-start_idx, pgc);
+	}//for
+	
+}
+
 
 
 
@@ -2361,16 +2488,100 @@ __global__ void ReducePartitioner(gpu_context d_g_state)
 }
 
 
+void ExecutePandaGPUReduceTasks(panda_gpu_context *pgc)
+{
+	
+	cudaThreadSynchronize(); 
+	pgc->reduced_key_vals.d_reduced_keyval_arr_len = pgc->sorted_key_vals.d_sorted_keyvals_arr_len;
+
+	checkCudaErrors(cudaMalloc((void **)&(pgc->reduced_key_vals.d_reduced_keyval_arr), 
+		sizeof(keyval_t)*pgc->reduced_key_vals.d_reduced_keyval_arr_len));
+
+	pgc->output_key_vals.totalKeySize = 0;
+	pgc->output_key_vals.totalValSize = 0;
+	pgc->output_key_vals.h_reduced_keyval_arr_len = pgc->reduced_key_vals.d_reduced_keyval_arr_len;
+	pgc->output_key_vals.h_reduced_keyval_arr = (keyval_t*)(malloc(sizeof(keyval_t)*pgc->output_key_vals.h_reduced_keyval_arr_len));
+
+	cudaThreadSynchronize(); 
+	int numGPUCores = getGPUCoresNum();
+	dim3 blocks(THREAD_BLOCK_SIZE, THREAD_BLOCK_SIZE);
+	int numBlocks = (numGPUCores*16+(blocks.x*blocks.y)-1)/(blocks.x*blocks.y);
+    dim3 grids(numBlocks, 1);
+	
+	int total_gpu_threads = (grids.x*grids.y*blocks.x*blocks.y);
+	ShowLog("reduce len:%d intermediate len:%d output len:%d sorted keySize%d: sorted valSize:%d",
+		pgc->reduced_key_vals.d_reduced_keyval_arr_len, 
+		pgc->intermediate_key_vals.d_intermediate_keyval_arr_arr_len,
+		pgc->output_key_vals.h_reduced_keyval_arr_len,
+		pgc->sorted_key_vals.totalKeySize, 
+		pgc->sorted_key_vals.totalValSize);
+
+	PandaReducePartitioner<<<grids,blocks>>>(*pgc);
+
+	checkCudaErrors(cudaMemcpy(pgc->output_key_vals.h_reduced_keyval_arr,
+		pgc->reduced_key_vals.d_reduced_keyval_arr,
+		sizeof(keyval_t)*pgc->reduced_key_vals.d_reduced_keyval_arr_len,
+		cudaMemcpyDeviceToHost));
+
+	for (int i = 0; i<pgc->reduced_key_vals.d_reduced_keyval_arr_len; i++){
+		//ShowLog("keySize:%d\n",pgc->output_key_vals.h_reduced_keyval_arr[i].keySize);
+		//ShowLog("valSize:%d\n",pgc->output_key_vals.h_reduced_keyval_arr[i].valSize);
+		pgc->output_key_vals.totalKeySize += (pgc->output_key_vals.h_reduced_keyval_arr[i].keySize+3)/4*4;
+		pgc->output_key_vals.totalValSize += (pgc->output_key_vals.h_reduced_keyval_arr[i].valSize+3)/4*4;
+	}//for
+	
+	ShowLog("Output total keySize:%d valSize:%d\n",pgc->output_key_vals.totalKeySize,pgc->output_key_vals.totalValSize);
+
+	pgc->output_key_vals.h_KeyBuff = malloc(sizeof(char)*pgc->output_key_vals.totalKeySize);
+	pgc->output_key_vals.h_ValBuff = malloc(sizeof(char)*pgc->output_key_vals.totalValSize);
+
+	checkCudaErrors(cudaMalloc(&(pgc->output_key_vals.d_KeyBuff), sizeof(char)*pgc->output_key_vals.totalKeySize ));
+	checkCudaErrors(cudaMalloc(&(pgc->output_key_vals.d_ValBuff), sizeof(char)*pgc->output_key_vals.totalValSize ));
+
+	copyDataFromDevice2Host4Reduce<<<grids,blocks>>>(*pgc);
+
+	checkCudaErrors(cudaMemcpy(
+			pgc->output_key_vals.h_KeyBuff,
+			pgc->output_key_vals.d_KeyBuff,
+			pgc->output_key_vals.totalKeySize,
+		cudaMemcpyDeviceToHost));
+
+	checkCudaErrors(cudaMemcpy(
+		pgc->output_key_vals.h_ValBuff,
+		pgc->output_key_vals.d_ValBuff,
+		pgc->output_key_vals.totalValSize,
+		cudaMemcpyDeviceToHost));
+
+	int val_pos, key_pos;
+	val_pos = key_pos = 0;
+	void *val, *key;
+
+	for (int i = 0; i<pgc->output_key_vals.h_reduced_keyval_arr_len; i++){
 		
+		
+		val = (char *)pgc->output_key_vals.h_ValBuff + val_pos;
+		key = (char *)pgc->output_key_vals.h_KeyBuff + key_pos;
+		pgc->output_key_vals.h_reduced_keyval_arr[i].key = key;
+		pgc->output_key_vals.h_reduced_keyval_arr[i].val = val;
+		ShowLog("key:%s val:%d\n",key,*(int*)val);
+
+		val_pos += (pgc->output_key_vals.h_reduced_keyval_arr[i].valSize+3)/4*4;
+		key_pos += (pgc->output_key_vals.h_reduced_keyval_arr[i].keySize+3)/4*4;
+
+	}//for
+
+	//ShowLog("Output: Size:%d keySize:%d",pgc->reduced_key_vals.d_reduced_keyval_arr_len,pgc->reduced_key_vals.h_reduced_keyval_arr[0].keySize);
+	cudaThreadSynchronize(); 
+
+}//void
+		
+
 void StartGPUReduce(gpu_context *d_g_state)
 {	
-	
 
 	cudaThreadSynchronize(); 
 	d_g_state->d_reduced_keyval_arr_len = d_g_state->d_sorted_keyvals_arr_len;
 	checkCudaErrors(cudaMalloc((void **)&(d_g_state->d_reduced_keyval_arr), sizeof(keyval_t)*d_g_state->d_reduced_keyval_arr_len));
-	
-
 
 	cudaThreadSynchronize(); 
 	int numGPUCores = getGPUCoresNum();
@@ -2389,6 +2600,8 @@ void StartGPUReduce(gpu_context *d_g_state)
 
 void* Panda_Map(void *ptr){
 		
+#if 0
+
 	thread_info_t *thread_info = (thread_info_t *)ptr;
 		
 	if(thread_info->device_type == GPU_CORE_ACC){
@@ -2475,7 +2688,8 @@ void* Panda_Map(void *ptr){
 			
 	}	
 
-	
+#endif
+
 	return NULL;
 }//FinishMapReduce2(d_g_state);
 

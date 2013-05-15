@@ -190,7 +190,7 @@ void PandaMetaScheduler(thread_info_t *thread_info, panda_context *panda){
 			//ShowLog("==>CPU d_g_state_1->sorted_keyvals_arr_len:%d",panda->sorted_keyvals_arr_len);
 		}//if
 		if (thread_info[i].device_type == GPU_CORE_ACC){
-			PandaShuffleMergeGPU((panda_context*)panda, (gpu_context*)(thread_info[i].d_g_state));
+			//PandaShuffleMergeGPU((panda_context*)panda, (gpu_context*)(thread_info[i].d_g_state));
 			//ShowLog("==>GPU d_g_state_1->sorted_keyvals_arr_len:%d",panda->sorted_keyvals_arr_len);
 		}//if
 

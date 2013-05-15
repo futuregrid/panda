@@ -17,9 +17,6 @@
 #include <ctype.h>
 
 
-const int NUM_CENTERS = 1;
-const int NUM_DIMS = 1;
-
 int main(int argc, char ** argv)
 {
 
@@ -28,26 +25,26 @@ int main(int argc, char ** argv)
   int rank, size;
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
   MPI_Comm_size(MPI_COMM_WORLD, &size);
-  const float centers[10] = {0};
+  printf("rank:%d size:%d\n",rank,size);
 
   job->setMessage (new panda::PandaMPIMessage(true));
-
   job->setMapper (new WCMapper());
-  job->setReducer(new WCReducer());
-
+  job->setReducer (new WCReducer());
   job->setSorter (new panda::IntIntSorter());
 
   if (rank == 0)
   {
-    char fn[256];
+    	char fn[256];
 	char str[512];
 	char strInput[1024];
-	sprintf(fn,"sample.txt");
-	int  chunk_size = 1024;
+	sprintf(fn,"/N/u/lihui/CUDA/github/panda/PandaV0.4/sample.txt");
+	int  chunk_size = 100;
 	char *chunk_data = (char *)malloc(sizeof(char)*(chunk_size+1000));
 	FILE *wcfp;
 	wcfp = fopen(fn, "r");
-
+	if(wcfp == NULL){
+		ShowLog("wcfp is null");
+	}//if
 	const int NUM_ELEMENTS = 1;
 	int total_len = 0;
 	while(fgets(str,sizeof(str),wcfp) != NULL)
@@ -59,12 +56,10 @@ int main(int argc, char ** argv)
 		total_len += (int)strlen(str);
 		
 		if(total_len>chunk_size){
-
+		printf("addInput data\n");
 		job->addInput(new panda::PreLoadedPandaChunk((char *)chunk_data, total_len, NUM_ELEMENTS ));
 		job->execute();
-		//AddPandaTask(gpu_job_conf, &iKey, strInput, sizeof(int), total_len);
 		total_len=0;
-		//iKey++;
 
 		}//if
 	}//while

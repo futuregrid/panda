@@ -32,7 +32,7 @@ This is the source code for Panda, a MapReduce runtime on GPUs and CPUs.
 void initialize(cmp_type_t *d_data, int rLen, cmp_type_t value)
 {
 	cudaThreadSynchronize();
-}
+}//void initialize
 
 
 __global__ void copyDataFromDevice2Host1(panda_gpu_context pgc)
@@ -327,12 +327,54 @@ __global__ void copyDataFromDevice2Host2(gpu_context d_g_state)
 }//__global__	
 
 
+__global__ void copyDataFromDevice2Host4Reduce(panda_gpu_context pgc)
+{	
+
+	int num_records_per_thread = (pgc.reduced_key_vals.d_reduced_keyval_arr_len
+		+ (gridDim.x*blockDim.x*blockDim.y)-1)/(gridDim.x*blockDim.x*blockDim.y);
+
+	int block_start_idx = num_records_per_thread * blockIdx.x * blockDim.x * blockDim.y;
+
+	int thread_start_idx = block_start_idx 
+		+ (threadIdx.y*blockDim.x + threadIdx.x)*num_records_per_thread;
+
+	int thread_end_idx = thread_start_idx + num_records_per_thread;
+
+	if(thread_end_idx> pgc.reduced_key_vals.d_reduced_keyval_arr_len)
+		thread_end_idx = pgc.reduced_key_vals.d_reduced_keyval_arr_len;
+
+	if (thread_start_idx >= thread_end_idx)
+		return;
+
+	int val_pos, key_pos;
+
+	for (int i=0; i<thread_start_idx; i++){
+		val_pos += (pgc.reduced_key_vals.d_reduced_keyval_arr[i].valSize+3)/4*4;
+		key_pos += (pgc.reduced_key_vals.d_reduced_keyval_arr[i].keySize+3)/4*4;
+	}//for
+
+	for (int i = thread_start_idx; i < thread_end_idx;i++){
+
+		memcpy( (char *)(pgc.output_key_vals.d_KeyBuff) + key_pos,
+			(char *)(pgc.reduced_key_vals.d_reduced_keyval_arr[i].key), pgc.reduced_key_vals.d_reduced_keyval_arr[i].keySize);
+		key_pos += pgc.reduced_key_vals.d_reduced_keyval_arr[i].keySize;
+
+		memcpy( (char *)(pgc.output_key_vals.d_ValBuff) + val_pos,
+			(char *)(pgc.reduced_key_vals.d_reduced_keyval_arr[i].val), pgc.reduced_key_vals.d_reduced_keyval_arr[i].valSize);
+		val_pos += pgc.reduced_key_vals.d_reduced_keyval_arr[i].valSize;
+
+	}//for
+	
+
+}//__global__	
+
+
 void StartCPUShuffle(thread_info_t *thread_info){
 
 	cpu_context *d_g_state = (cpu_context*)(thread_info->d_g_state);
 	job_configuration *cpu_job_conf = (job_configuration*)(thread_info->job_conf);
 
-	keyval_t * input_keyval_arr;
+	//keyval_t * input_keyval_arr;
 	keyval_arr_t *intermediate_keyval_arr_arr_p = d_g_state->intermediate_keyval_arr_arr_p;
 	
 	int total_count = 0;
@@ -552,7 +594,7 @@ void StartCPUShuffle2(thread_info_t *thread_info){
 }
 
 
-void Shuffle4GPUOutput(panda_gpu_context* pgc){
+void ExecutePandaGPUShuffle(panda_gpu_context* pgc){
 
 	cudaThreadSynchronize();
 	int *count_arr = (int *)malloc(sizeof(int) * pgc->input_key_vals.num_input_record);
@@ -581,7 +623,9 @@ void Shuffle4GPUOutput(panda_gpu_context* pgc){
 
 	//TODO intermediate keyval_arr use pos_arr
 	keyval_t * h_keyval_arr = (keyval_t *)malloc(sizeof(keyval_t)*total_count);
-	checkCudaErrors(cudaMemcpy(h_keyval_arr, pgc->intermediate_key_vals.d_intermediate_keyval_arr, sizeof(keyval_t)*total_count, cudaMemcpyDeviceToHost));
+	checkCudaErrors(cudaMemcpy(h_keyval_arr, pgc->intermediate_key_vals.d_intermediate_keyval_arr, 
+		sizeof(keyval_t)*total_count, cudaMemcpyDeviceToHost));
+
 	pgc->intermediate_key_vals.h_intermediate_keyval_pos_arr = (keyval_pos_t *)malloc(sizeof(keyval_pos_t)*total_count);
 	keyval_pos_t *h_intermediate_keyvals_pos_arr = pgc->intermediate_key_vals.h_intermediate_keyval_pos_arr;
 
@@ -677,6 +721,7 @@ void Shuffle4GPUOutput(panda_gpu_context* pgc){
 			p->val_pos_arr[0].valSize = h_intermediate_keyvals_pos_arr[i].valSize;
 			p->val_pos_arr[0].valPos = h_intermediate_keyvals_pos_arr[i].valPos;
 		}//if
+
 	}
 
 	pgc->sorted_key_vals.h_sorted_keyval_pos_arr = h_sorted_keyval_pos_arr;
@@ -706,14 +751,14 @@ void Shuffle4GPUOutput(panda_gpu_context* pgc){
 
 	checkCudaErrors(cudaMemcpy(pgc->sorted_key_vals.d_keyval_pos_arr,tmp_keyval_pos_arr,sizeof(keyval_pos_t)*total_count,cudaMemcpyHostToDevice));
 	pgc->sorted_key_vals.d_sorted_keyvals_arr_len = sorted_key_arr_len;
-
+	
 	checkCudaErrors(cudaMalloc((void**)&pgc->sorted_key_vals.d_pos_arr_4_sorted_keyval_pos_arr,sizeof(int)*sorted_key_arr_len));
 	checkCudaErrors(cudaMemcpy(pgc->sorted_key_vals.d_pos_arr_4_sorted_keyval_pos_arr,pos_arr_4_pos_arr,sizeof(int)*sorted_key_arr_len,cudaMemcpyHostToDevice));
 
 }
 
 
-void Shuffle4GPUOutput(gpu_context* d_g_state){
+void ExecutePandaGPUShuffle(gpu_context* d_g_state){
 
 	cudaThreadSynchronize();
 	int *count_arr = (int *)malloc(sizeof(int) * d_g_state->num_input_record);
@@ -1040,17 +1085,17 @@ void PandaShuffleMergeCPU(panda_context *d_g_state_0, cpu_context *d_g_state_1){
 }
 
 
-void PandaShuffleMergeGPU(panda_node_context *pnc, panda_gpu_context *pgc){
+void ExecutePandaShuffleMergeGPU(panda_node_context *pnc, panda_gpu_context *pgc){
 	
 	char *sorted_keys_shared_buff_0 = (char *)pgc->sorted_key_vals.h_sorted_keys_shared_buff;
 	char *sorted_vals_shared_buff_0 = (char *)pgc->sorted_key_vals.h_sorted_vals_shared_buff;
 
 	sorted_keyval_pos_t *keyval_pos_arr_0 = pgc->sorted_key_vals.h_sorted_keyval_pos_arr;
-	keyvals_t *sorted_intermediate_keyvals_arr = pnc->sorted_intermediate_keyvals_arr;
+	keyvals_t *sorted_intermediate_keyvals_arr = pnc->sorted_key_vals.sorted_intermediate_keyvals_arr;
 
 	void *key_0, *key_1;
 	int keySize_0, keySize_1;
-	bool equal;	
+	bool equal;
 
 	int new_count = 0;
 	for (int i=0;i< pgc->sorted_key_vals.d_sorted_keyvals_arr_len;i++){
@@ -1059,7 +1104,8 @@ void PandaShuffleMergeGPU(panda_node_context *pnc, panda_gpu_context *pgc){
 		keySize_0 = keyval_pos_arr_0[i].keySize;
 
 		int j = 0;
-		for (; j< pnc->sorted_keyvals_arr_len; j++){
+		
+		for (; j< pnc->sorted_key_vals.sorted_keyvals_arr_len; j++){
 
 			key_1 = sorted_intermediate_keyvals_arr[j].key;
 			keySize_1 = sorted_intermediate_keyvals_arr[j].keySize;
@@ -1069,60 +1115,95 @@ void PandaShuffleMergeGPU(panda_node_context *pnc, panda_gpu_context *pgc){
 
 			val_t *vals = sorted_intermediate_keyvals_arr[j].vals;
 			//copy values from gpu to cpu context
-			int val_arr_len_0 =keyval_pos_arr_0[i].val_arr_len;
-			val_pos_t * val_pos_arr =keyval_pos_arr_0[i].val_pos_arr;
+			int val_arr_len_0 = keyval_pos_arr_0[i].val_arr_len;
+			val_pos_t * val_pos_arr = keyval_pos_arr_0[i].val_pos_arr;
 
 			int index = sorted_intermediate_keyvals_arr[j].val_arr_len;
 			sorted_intermediate_keyvals_arr[j].val_arr_len += val_arr_len_0;
 			sorted_intermediate_keyvals_arr[j].vals = (val_t*)realloc(vals, sizeof(val_t)*(sorted_intermediate_keyvals_arr[j].val_arr_len));
 
-			for (int k=0;k<val_arr_len_0;k++){
+			for (int k=0; k < val_arr_len_0; k++){
 
 				char *val_0 = sorted_vals_shared_buff_0 + val_pos_arr[k].valPos;
 				int valSize_0 = val_pos_arr[k].valSize;
 
-				sorted_intermediate_keyvals_arr[j].vals[index+k].val = malloc(sizeof(char)*valSize_0);
+				sorted_intermediate_keyvals_arr[j].vals[index+k].val = (char *)malloc(sizeof(char)*valSize_0);
 				sorted_intermediate_keyvals_arr[j].vals[index+k].valSize = valSize_0;
 				memcpy(sorted_intermediate_keyvals_arr[j].vals[index+k].val, val_0, valSize_0);
+				//printf("_key:%s val:%d\n",(char*)key_1,*(int*)val_0);
+
 			}//for
 			break;
 		}//for
 
-		if (j == pnc->sorted_keyvals_arr_len){
+		if (j == pnc->sorted_key_vals.sorted_keyvals_arr_len){
 
-			if (pnc->sorted_keyvals_arr_len == 0) sorted_intermediate_keyvals_arr = NULL;
+			if (pnc->sorted_key_vals.sorted_keyvals_arr_len == 0) sorted_intermediate_keyvals_arr = NULL;
 			int val_arr_len =keyval_pos_arr_0[i].val_arr_len;
 			val_pos_t * val_pos_arr =keyval_pos_arr_0[i].val_pos_arr;
-			pnc->sorted_keyvals_arr_len++;
+			pnc->sorted_key_vals.sorted_keyvals_arr_len++;
 
-			sorted_intermediate_keyvals_arr = (keyvals_t *)realloc(sorted_intermediate_keyvals_arr, sizeof(keyvals_t)*(pnc->sorted_keyvals_arr_len));
-			int index = pnc->sorted_keyvals_arr_len-1;
+			sorted_intermediate_keyvals_arr = (keyvals_t *)realloc(sorted_intermediate_keyvals_arr, sizeof(keyvals_t)*(pnc->sorted_key_vals.sorted_keyvals_arr_len));
+			int index = pnc->sorted_key_vals.sorted_keyvals_arr_len-1;
 			keyvals_t* kvals_p = (keyvals_t *)&(sorted_intermediate_keyvals_arr[index]);
 
 			kvals_p->keySize = keySize_0;
 			kvals_p->key = malloc(sizeof(char)*keySize_0);
+
 			memcpy(kvals_p->key, key_0, keySize_0);
-			printf("%s",kvals_p->key);
 
 			kvals_p->vals = (val_t *)malloc(sizeof(val_t)*val_arr_len);
 			kvals_p->val_arr_len = val_arr_len;
 
 			for (int k=0; k < val_arr_len; k++){
+
 				char *val_0 = sorted_vals_shared_buff_0 + val_pos_arr[k].valPos;
 				int valSize_0 = val_pos_arr[k].valSize;
 
 				kvals_p->vals[k].valSize = valSize_0;
 				kvals_p->vals[k].val = (char *)malloc(sizeof(char)*valSize_0);
-				memcpy(kvals_p->vals[k].val,val_0, valSize_0);
+				memcpy(kvals_p->vals[k].val, val_0, valSize_0);
+				//printf("__key: %s valSize:%d\n",kvals_p->key,(int)(kvals_p->vals[k].valSize));
+				if(index == 30){
+					//for (int f=0;f<30;f++)
+					//printf("++key: %s valSize:%d index:%d\n",sorted_intermediate_keyvals_arr[f].key,sorted_intermediate_keyvals_arr[f].vals[k].valSize,f);
+				}
 
 			}//for
+			//printf("%s %d  valLen:%d\n",kvals_p->key,*(int*)(kvals_p->vals[0].val),val_arr_len);
 		}//if
-	}//if
+	}//if 
 
-	pnc->sorted_intermediate_keyvals_arr = sorted_intermediate_keyvals_arr;
+	pnc->sorted_key_vals.sorted_intermediate_keyvals_arr = sorted_intermediate_keyvals_arr;
+
 	//ShowLog("GPU_ID:[%d] panda_context current length of shuffled keyval pairs:%d",d_g_state_gpu->gpu_id, d_g_state_panda->sorted_keyvals_arr_len);
+	//printf("---------------------------------------\n");
+
+	//for (int f=0; f<30; f++){
+	//	int len = sorted_intermediate_keyvals_arr[f].val_arr_len;
+	//	//for (int i=0;i<len;i++)
+	//	//printf("++key: %s valSize:%d index:%d\n",sorted_intermediate_keyvals_arr[f].key,sorted_intermediate_keyvals_arr[f].vals[i].valSize,f);
+	//}
+
+	
+	//for (int i=0; i < pnc->sorted_key_vals.sorted_keyvals_arr_len; i++){
+	//for (int i=0; i<30; i++){
+	//	  char *key	   = (char *)(pnc->sorted_key_vals.sorted_intermediate_keyvals_arr[i].key);
+	//	  int keySize  = pnc->sorted_key_vals.sorted_intermediate_keyvals_arr[i].keySize;
+
+	//	  val_t *vals  = pnc->sorted_key_vals.sorted_intermediate_keyvals_arr[i].vals;
+	//	  int val_len  = pnc->sorted_key_vals.sorted_intermediate_keyvals_arr[i].val_arr_len;
+
+	//	  for (int j=0; j<val_len; j++){
+	//		  //printf("   key:%s valSize:%d j:%d\n", key, pnc->sorted_key_vals.sorted_intermediate_keyvals_arr[i].vals[j].valSize,j);
+	//		  //printf("   key:%s valSize:%d j:%d\n", key, vals[j].valSize,j);
+	//	  }//for
+	//	  printf("\n");
+	//  }//for
+	//printf("+++++++++++++++++++++++++++++++++++++++\n");
 
 	return;
+
 }//void
 
 void PandaShuffleMergeGPU(panda_context *d_g_state_panda, gpu_context *d_g_state_gpu){

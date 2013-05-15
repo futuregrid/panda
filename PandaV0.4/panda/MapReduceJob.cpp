@@ -54,8 +54,8 @@ namespace panda
     host = host.substr(0, host.size() - 1);
     strcpy(buf, host.c_str());
 
-	int devCount = cudacpp::Runtime::getDeviceCount();
-	printf("devCount:%d\n",devCount);
+    int devCount = cudacpp::Runtime::getDeviceCount();
+    printf("GPU device count:%d on master node:%s\n",devCount,buf);
 
 	if (commRank == 0)
     {
@@ -93,7 +93,7 @@ namespace panda
           MPI_Abort(MPI_COMM_WORLD, 1);
         }
       }
-#if 0 // print out the configuration
+#if 1 // print out the configuration
       for (std::map<std::string, std::vector<int> >::iterator it = hosts.begin(); it != hosts.end(); ++it)
       {
         printf("%s - %d\n", it->first.c_str(), devCounts[it->first]);
@@ -123,7 +123,7 @@ namespace panda
       MPI_Recv(&deviceNum, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, &stat);
     }
 
-#if 0 // print out stuff
+#if 1 // print out stuff
     MPI_Barrier(MPI_COMM_WORLD);
     printf("%d %s - using device %d (getDevice returns %d).\n", commRank, host.c_str(), deviceNum, cudacpp::Runtime::getDevice()); fflush(stdout);
 #endif
