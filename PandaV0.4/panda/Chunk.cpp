@@ -16,6 +16,7 @@ namespace panda
 	  key = NULL;
 	  val = NULL;
   }
+
   MapTask::MapTask(int keySize, void *key, int valSize, void *val)
   {
 	  this->key = key;

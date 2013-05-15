@@ -52,6 +52,7 @@ void cpu_map(void *KEY, void*VAL, int keySize, int valSize, cpu_context *d_g_sta
 
 __device__ void gpu_core_map(void *KEY, void*VAL, int keySize, int valSize, panda_gpu_context *pgc, int map_task_idx){
 
+		
 		int wsize = 0;
 		char *start;
 		char *p = (char *)VAL;
@@ -74,6 +75,8 @@ __device__ void gpu_core_map(void *KEY, void*VAL, int keySize, int valSize, pand
 			if(valSize<=0)
 				break;
 		}//while
+
+		printf("gpu_core\n");
 		
 		__syncthreads();
 		
@@ -148,6 +151,18 @@ __device__ void gpu_combiner(void *KEY, val_t* VAL, int keySize, int valCount, g
 		
 }//reduce2
 
+
+__device__ void panda_gpu_reduce(void *KEY, val_t* VAL, int keySize, int valCount, panda_gpu_context pgc){
+
+		int count = 0;
+		for (int i=0;i<valCount;i++){
+			count += *(int *)(VAL[i].val);
+		}//
+		
+		//GPUEmitReduceOuput(KEY,&count,keySize,sizeof(int),&pgc);
+		PandaGPUEmitReduceOutput(KEY,&count,keySize,sizeof(int),&pgc);
+		
+}//reduce2
 
 __device__ void gpu_reduce(void *KEY, val_t* VAL, int keySize, int valCount, gpu_context d_g_state){
 

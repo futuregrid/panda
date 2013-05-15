@@ -1,0 +1,5 @@
+opari -table opari.tab.c
+1) uniq /var/spool/torque/aux/401389.i136 > 1nodes
+2) mpdallexit
+3) mpdboot -r ssh -f 1nodes -n 1
+4) mpiexec -l -machinefile 1nodes -n 1 ./mpi_cuda_cmeans pluton.dat

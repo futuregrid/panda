@@ -2,8 +2,6 @@
 #include <panda/IntIntSorter.h>
 #include <cudacpp/Runtime.h>
 #include <cudpp/cudpp.h>
-//#include <mpi.h>
-
 #include <algorithm>
 
 void gpmrIntIntSorterMarkUnique(const void * const gpuInputKeys, void * const gpuUniqueFlags, const int numKeys);

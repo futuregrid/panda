@@ -1,5 +1,5 @@
-#ifndef __PANDA_FIXEDSIZEMAPREDUCEJOB_H__
-#define __PANDA_FIXEDSIZEMAPREDUCEJOB_H__
+#ifndef __PANDA_MAPREDUCEJOB_H__
+#define __PANDA_MAPREDUCEJOB_H__
 
 #include <panda/Message.h>
 #include <panda/EmitConfiguration.h>
@@ -22,6 +22,7 @@ namespace panda
 
   class PandaMapReduceJob : public MapReduceJob
   {
+
     protected:
       std::vector<Chunk * > chunks;
 	  std::vector<MapTask *> mapTasks;
@@ -35,6 +36,7 @@ namespace panda
       int * keyOffsets;
       int * valOffsets;
       int * numVals;
+
       oscpp::Thread * MessageThread;
 
       cudacpp::Stream * kernelStream, * memcpyStream;
@@ -44,11 +46,12 @@ namespace panda
       int maxStaticMem, maxKeySpace, maxValSpace, numBuffers;
       std::vector<EmitConfiguration> emitConfigs;
 	  
-	 struct panda_gpu_context *pGPUContext;
-	 struct  panda_cpu_context *pCPUContext;
-	 struct  panda_node_context *pNodeContext;
+	  panda_gpu_context *pGPUContext;
+	  //panda_cpu_context *pCPUContext;
+	  panda_node_context *pNodeContext;
+	  panda_runtime_context *pRuntimeContext;
 
-      // map variables
+      //map variables
       void * gpuStaticMems;
       int * cpuKeyOffsets, * cpuValOffsets, * gpuKeyOffsets, * gpuValOffsets;
       int * cpuKeyCounts, * cpuValCounts, * gpuKeyCounts, * gpuValCounts;
@@ -121,13 +124,29 @@ namespace panda
       virtual void copyReduceOutput(const int index, const int keysSoFar);
       virtual void enqueueReductions();
 	  
-	  virtual void InitMapTasks();
-	  virtual void InitPandaGPUMapReduce(panda_gpu_context* pgc);
+	  virtual void InitPandaRuntime();
+	  virtual void InitPandaGPUMapReduce();
+	  virtual void StartPandaGPUCombiner();
+	  virtual void StartPandaSortGPUResults();
+	  virtual void StartPandaLocalMergeGPUOutput();
+	  virtual void StartPandaGlobalPartition();
+	  virtual void StartPandaDoPartitionOnCPU();
+
+	  virtual void StartPandaAddReduceTask4GPU(int start_row_id, int end_row_id);
+	  virtual int  StartPandaGPUMapTasks();
+	  virtual int  StartPandaGPUReduceTasks();
+	  virtual void PandaPartitionCheckSends(const bool sync);
+	  virtual void StartPandaPartitionSubSendData();
+
+	  //virtual void StartPandaRuntimeMerge();
+	  virtual int GetHash(const char* Key, int KeySize, int commRank );
+	  virtual void AddKeyValue2Bucket(int bucketId, const char*key, int keySize, const char*val, int valSize);
 
       virtual void map();
       virtual void sort();
       virtual void reduce();
       virtual void collectTimings();
+
     public:
       PandaMapReduceJob(int & argc,
                             char **& argv,
@@ -138,8 +157,7 @@ namespace panda
 
       virtual void addInput(panda::Chunk * chunk);
 	  virtual void addMapTasks(panda::Chunk *chunk);
-	  virtual int StartPandaGPUMapTasks(panda_gpu_context *pgc);
-
+	  
       virtual void execute();
   };
 }

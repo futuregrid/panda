@@ -34,7 +34,7 @@ namespace cudacpp
 	cudaGetDeviceCount(&gpu_count);
 	if (deviceID>=gpu_count){
 		printf("wrong deviceID:%d\n",deviceID);
-		//TODO exit(-1);
+		exit(-1);
 	}
 	cudaDeviceProp *gpu_dev = new cudaDeviceProp;
 	cudaGetDeviceProperties(gpu_dev, deviceID);

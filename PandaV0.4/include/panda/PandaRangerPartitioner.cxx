@@ -1,9 +1,10 @@
 #ifndef __GPMR_FIXEDSIZERANGEPARTITIONER_CXX__
 #define __GPMR_FIXEDSIZERANGEPARTITIONER_CXX__
 
+#include <mpi.h>
 #include <panda/PandaRangePartitioner.h>
 
-#include <mpi.h>
+
 
 namespace panda
 {
@@ -11,21 +12,9 @@ namespace panda
 
   template <typename Key, typename Val> void PandaRangePartitionerZeroCountsAndIndices(const int commSize, int * gpuBucketCounts, int * gpuBucketIndices, cudaStream_t * stream);
   template <typename Key, typename Val> void PandaRangePartitionerCount               (const int commSize, const int numKeys, Key * gpuKeys, int * gpuBucketCounts, cudaStream_t * stream);
-//  template <typename Key, typename Value> void PandaRangePartitionerCount     (const int commSize, const int numKeys, Key * gpuKeys, Value * gpuVals, Key * gpuTempKeySpace, Vakye * gpuTempValSpace, int * gpuKeyOffsets, int * gpuBucketIndices, cudaStream_t * stream);
-//  template <typename Key, typename Value> void PandaRangePartitionerMoveFromTemp        (const int commSize, const int numKeys, Key * gpuKeys, Value * gpuVals, Key * gpuTempKeySpace, Vakye * gpuTempValSpace, cudaStream_t * stream);
   template <typename Key, typename Val> void PandaRangePartitionerSetKeyAndValCounts  (const int commSize, int * gpuKeyCounts, int * gpuValCounts, cudaStream_t * stream);
   template <typename Key, typename Val> void PandaRangePartitionerSetKeyAndValOffsets (const int commSize, const int * const gpuKeyCounts, int * const gpuKeyOffsets, int * const gpuValOffsets, cudaStream_t * stream);
 
-  //template <typename Key, typename Value>
-  /*PandaRangePartitioner<Key, Value>::PandaRangePartitioner(const Key & pRangeBegin, const Key & pRangeEnd)
-  {
-    rangeBegin = pRangeBegin;
-    rangeEnd   = pRangeEnd;
-  }*/
-  //template <typename Key, typename Value>
-  //PandaRangePartitioner<Key, Value>::~PandaRangePartitioner()
-  //{
-  //}
   
   template <typename Key, typename Value>
   bool PandaRangePartitioner<Key, Value>::canExecuteOnGPU() const

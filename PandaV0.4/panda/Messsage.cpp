@@ -1,5 +1,5 @@
-#include <panda/Message.h>
 #include <mpi.h>
+#include <panda/Message.h>
 
 namespace panda
 {
@@ -12,7 +12,7 @@ namespace panda
   {
   }//message
 
-  void Message::init()
+  void Message::MsgInit()
   {
     MPI_Comm_size(MPI_COMM_WORLD, &commSize);
     MPI_Comm_rank(MPI_COMM_WORLD, &commRank);

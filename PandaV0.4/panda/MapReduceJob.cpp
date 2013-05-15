@@ -55,6 +55,7 @@ namespace panda
     strcpy(buf, host.c_str());
 
 	int devCount = cudacpp::Runtime::getDeviceCount();
+	printf("devCount:%d\n",devCount);
 
 	if (commRank == 0)
     {

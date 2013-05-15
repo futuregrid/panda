@@ -4,6 +4,7 @@
 #include <cudacpp/Stream.h>
 #include <cudpp/cudpp.h>
 
+
 void wcReducerExecute(const int numKeys,
                           const int   * const numVals,
                           const int   * const oldKeys,

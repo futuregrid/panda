@@ -1,11 +1,13 @@
-#ifndef __GPMR_MAPREDUCEJOB_H__
-#define __GPMR_MAPREDUCEJOB_H__
+#ifndef __PANDA_SUPMAPREDUCEJOB_H__
+#define __PANDA_SUPMAPREDUCEJOB_H__
 
 #include <vector>
 
 namespace panda
 {
+
   class Message;
+
   class Chunk;
   class Combiner;
   class Mapper;
@@ -14,10 +16,11 @@ namespace panda
   class Sorter;
   class Reducer;
   class SerializedItemCollection;
+
   class MapReduceJob
   {
     protected:
-      Message          * messager;
+      Message         * messager;
       Combiner        * combiner;
       Mapper          * mapper;
       Partitioner     * partitioner;
@@ -35,7 +38,7 @@ namespace panda
       MapReduceJob(int & argc, char **& argv);
       virtual ~MapReduceJob();
 
-      inline Message          * getMessage()          { return messager;          }
+      inline Message          * getMessage()        { return messager;        }
       inline Combiner        * getCombiner()        { return combiner;        }
       inline Mapper          * getMapper()          { return mapper;          }
       inline Partitioner     * getPartitioner()     { return partitioner;     }
@@ -44,7 +47,7 @@ namespace panda
       inline Reducer         * getReducer()         { return reducer;         }
       inline int               getDeviceNumber()    { return deviceNum;       }
 
-      inline void setMessage        (Message         * const pMessage)         { messager         = pMessage;         }
+      inline void setMessage       (Message       * const pMessage)         { messager       = pMessage;        }
       inline void setCombiner      (Combiner       * const pCombiner)       { combiner       = pCombiner;       }
       inline void setMapper        (Mapper         * const pMapper)         { mapper         = pMapper;         }
       inline void setPartitioner   (Partitioner    * const pPartitioner)    { partitioner    = pPartitioner;    }
