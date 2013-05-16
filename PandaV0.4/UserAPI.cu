@@ -76,8 +76,6 @@ __device__ void gpu_core_map(void *KEY, void*VAL, int keySize, int valSize, pand
 				break;
 		}//while
 
-		printf("gpu_core\n");
-		
 		__syncthreads();
 		
 }//map2

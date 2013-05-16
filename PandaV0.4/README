@@ -8,3 +8,5 @@ uniq /var/spool/torque/aux/401389.i136 > 1nodes
 mpdallexit
 mpdboot -r ssh -f 1nodes -n 1
 mpiexec -l -machinefile 1nodes -n 1 ./bin/panda_main 
+
+or use the openmpi-gnu when intelmpi does not work

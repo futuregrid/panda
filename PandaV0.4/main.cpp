@@ -23,14 +23,17 @@ int main(int argc, char ** argv)
   panda::MapReduceJob  * job = new panda::PandaMapReduceJob(argc, argv, true);
 
   int rank, size;
-  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-  MPI_Comm_size(MPI_COMM_WORLD, &size);
-  printf("rank:%d size:%d\n",rank,size);
+  //MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+  //MPI_Comm_size(MPI_COMM_WORLD, &size);
+  //printf("rank:%d size:%d\n",rank,size);
 
   job->setMessage (new panda::PandaMPIMessage(true));
-  job->setMapper (new WCMapper());
+  job->setMapper  (new WCMapper());
   job->setReducer (new WCReducer());
-  job->setSorter (new panda::IntIntSorter());
+  job->setSorter  (new panda::IntIntSorter());
+
+  //int provided;
+  //MPI_Init_thread(0, 0, MPI_THREAD_MULTIPLE, &provided );
 
   if (rank == 0)
   {
@@ -38,7 +41,7 @@ int main(int argc, char ** argv)
 	char str[512];
 	char strInput[1024];
 	sprintf(fn,"/N/u/lihui/CUDA/github/panda/PandaV0.4/sample.txt");
-	int  chunk_size = 100;
+	int  chunk_size = 2048;
 	char *chunk_data = (char *)malloc(sizeof(char)*(chunk_size+1000));
 	FILE *wcfp;
 	wcfp = fopen(fn, "r");

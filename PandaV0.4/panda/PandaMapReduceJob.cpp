@@ -954,6 +954,7 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
     std::vector<oscpp::AsyncIORequest * > newReqs;
     for (unsigned int j = 0; j < sendReqs.size(); ++j)
     {
+//	ShowLog("--------------------------------------------------------------------------------------");
       if (sync) sendReqs[j]->sync();
       if (sendReqs[j]->query()) delete sendReqs[j];
       else    newReqs.push_back(sendReqs[j]);
@@ -968,6 +969,8 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
 	  int maxlen	  = 20;
 
 	  this->pNodeContext->buckets.numBuckets  = this->commSize;
+	  ShowLog(" ------------------------------------ :%d",this->commSize);
+
 	  this->pNodeContext->buckets.keyBuffSize = new int[this->commSize];
 	  this->pNodeContext->buckets.valBuffSize = new int[this->commSize];
 

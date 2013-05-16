@@ -142,8 +142,9 @@ namespace panda
     MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided);
     MPI_Comm_rank(MPI_COMM_WORLD, &commRank);
     MPI_Comm_size(MPI_COMM_WORLD, &commSize);
+    ShowLog(" @@@@@@@@@@@@@@ size:%d rank:%d",commSize,commRank);
     setDevice();
-  }
+  }//MapReduceJob
 
   MapReduceJob::~MapReduceJob()
   {

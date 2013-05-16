@@ -1,0 +1,29 @@
+
+# * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+#    Panda Code V0.42 						  5/16/2013 */
+#    							  lihui@indiana.edu */
+# * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+all: panda
+
+OPTFLAGS    = -O 
+INCFLAGS    = -I. -I/N/soft/openmpi/1.4.3-gnu/include/
+CFLAGS      = $(OPTFLAGS) $(INCFLAGS) 
+LDFLAGS     = -L/N/soft/openmpi/1.4.3-gnu/lib/
+LIBS        = -lmpi
+
+CC          = mpicxx
+MPICC       = mpicxx
+NVCC        = nvcc
+
+OBJ_FILES	:= test.o
+
+panda: pandatest
+pandatest: test.o
+	$(CC) $(LIBS) $(LDFLAGS) -o $@ $^
+
+test.o: test.cpp 
+	$(CC) $(LIBS) $(INCFLAGS) -c -o $@ $<
+
+clean:
+	rm -rf *.o pandatest 

@@ -1,0 +1,5 @@
+[#Log#][MapReduceJob]		 @@@@@@@@@@@@@@ size:2 rank:0
+[#Log#][MapReduceJob]		 @@@@@@@@@@@@@@ size:2 rank:1
+GPU device count:2 on master node:d003
+GPU device count:2 on master node:d005
+2 total processes killed (some possibly by mpirun during cleanup)
