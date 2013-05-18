@@ -62,7 +62,7 @@ namespace panda
   	keyPosKeySizeValPosValSize[i] = NULL;
       	MPI_Irecv(counts + i * 3, 3, MPI_INT, i, 0, MPI_COMM_WORLD, recvReqs + i * 3);
     	}//for
-
+	MPI_Barrier(MPI_COMM_WORLD);
 	ShowLog("message thread after MPI_Irecv");
 
 	innerLoopDone 	= false;
@@ -70,7 +70,7 @@ namespace panda
 	while (!innerLoopDone || finishedWorkers < commSize)
     	{
       	poll(finishedWorkers, workerDone, recvingCount, counts, keyRecv, valRecv, keyPosKeySizeValPosValSize, recvReqs);
-	if((loopc%100) == 0)      	
+	//if((loopc%10) == 0)      	
 	   ShowLog("loop to poll the status of sending out data. finishedWorkers:%d loop:%d", finishedWorkers, loopc++);	
 	pollSends();
     	}//while
@@ -317,8 +317,9 @@ namespace panda
 			       int ** keyPosKeySizeValPosValSize,
                                MPI_Request * recvReqs)
   {
-
+	if(gCommRank==1)ShowLog("Debug point 1.1");
     pollSends();
+	if(gCommRank==1)ShowLog("Debug point 1.2");
 
     int flag;
     MPI_Status stat[3];

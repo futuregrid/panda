@@ -6,18 +6,21 @@
 all: panda
 
 OPTFLAGS    = -O 
-INCFLAGS    = -I. -I/opt/openmpi-1.4.3-gnu/include/
+#INCFLAGS   = -I. -I/N/soft/intel/impi/4.0.0.028/include64/
+INCFLAGS    = -I. -I/opt/openmpi-1.4.3-gnu/include
 CFLAGS      = $(OPTFLAGS) $(INCFLAGS) -DBLOCK_SHARED_MEM_OPTIMIZATION=0 
 NVCCFLAGS   = $(CFLAGS) --ptxas-options=-v -arch=sm_20
-LDFLAGS     = -L/opt/openmpi-1.4.3-gnu/lib/
-LIBS        = -lmpi  -lmpi_cxx -lpthread -lcutil_x86_64 -lcudart
+#LDFLAGS    = -L/N/soft/intel/impi/4.0.0.028/lib64/
+LDFLAGS	    = -L/opt/openmpi-1.4.3-gnu/lib/
+LIBS        = -lmpi -lmpi_cxx -lpthread -lcutil_x86_64 -lcudart
 
 #  note:
+#  with openmpi add -lmpi_cxx
 #  gcc usess -fopenmp
 #  icc uses -opnemp
 
 OMPFLAGS    = -fopenmp
-CC          = mpicxx
+CC          = g++
 MPICC       = mpicxx
 NVCC        = nvcc
 

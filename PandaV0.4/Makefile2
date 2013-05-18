@@ -7,9 +7,11 @@
 all: panda
 
 OPTFLAGS    = -O 
-INCFLAGS    = -I. -I/N/soft/openmpi/1.4.3-gnu/include/
+#INCFLAGS    = -I. -I/N/soft/intel/impi/4.0.0.028/include64/
+INCFLAGS = -I. -I/opt/openmpi-1.4.3-gnu/include
 CFLAGS      = $(OPTFLAGS) $(INCFLAGS) 
-LDFLAGS     = -L/N/soft/openmpi/1.4.3-gnu/lib/
+#LDFLAGS     = -L/N/soft/intel/impi/4.0.0.028/lib64/
+LDFLAGS = -L/opt/openmpi-1.4.3-gnu/lib
 LIBS        = -lmpi
 
 CC          = mpicxx

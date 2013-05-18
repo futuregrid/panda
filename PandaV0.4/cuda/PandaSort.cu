@@ -648,7 +648,7 @@ void ExecutePandaGPUShuffle(panda_gpu_context* pgc){
 	pgc->sorted_key_vals.totalValSize = totalValSize;
 	pgc->sorted_key_vals.totalKeySize = totalKeySize;
 
-	ShowLog("allocate memory for totalKeySize:%d KB totalValSize:%d KB number of intermediate records:%d ", totalKeySize/1024, totalValSize/1024, total_count);
+	ShowLog("allocate memory of totalKeySize:%f KB totalValSize:%f KB, number of intermediate records:%d ", (double)(totalKeySize)/1024.0, (double)totalValSize/1024.0, total_count);
 	checkCudaErrors(cudaMalloc((void **)&pgc->intermediate_key_vals.d_intermediate_keys_shared_buff,totalKeySize));
 	checkCudaErrors(cudaMalloc((void **)&pgc->intermediate_key_vals.d_intermediate_vals_shared_buff,totalValSize));
 	checkCudaErrors(cudaMalloc((void **)&pgc->intermediate_key_vals.d_intermediate_keyval_pos_arr,sizeof(keyval_pos_t)*total_count));
@@ -685,7 +685,7 @@ void ExecutePandaGPUShuffle(panda_gpu_context* pgc){
 
 	///////////////////////////////////////////////////////////////////////////////////////////////////
 	//transfer the d_sorted_keyval_pos_arr to h_sorted_keyval_pos_arr
-	//ShowLog("transfer the d_sorted_keyval_pos_arr to h_sorted_keyval_pos_arr");
+	ShowLog("DEBUG point start to transfer the d_sorted_keyval_pos_arr to h_sorted_keyval_pos_arr");
 
 	sorted_keyval_pos_t * h_sorted_keyval_pos_arr = NULL;
 	for (int i=0; i<total_count; i++){
@@ -807,7 +807,7 @@ void ExecutePandaGPUShuffle(gpu_context* d_g_state){
 	d_g_state->totalValSize = totalValSize;
 	d_g_state->totalKeySize = totalKeySize;
 
-	ShowLog("allocate memory for totalKeySize:%d KB totalValSize:%d KB number of intermediate records:%d ", totalKeySize/1024, totalValSize/1024, total_count);
+	ShowLog("allocate memory for totalKeySize:%f KB totalValSize:%f KB number of intermediate records:%d ", totalKeySize/1024, totalValSize/1024, total_count);
 	checkCudaErrors(cudaMalloc((void **)&d_g_state->d_intermediate_keys_shared_buff,totalKeySize));
 	checkCudaErrors(cudaMalloc((void **)&d_g_state->d_intermediate_vals_shared_buff,totalValSize));
 	checkCudaErrors(cudaMalloc((void **)&d_g_state->d_intermediate_keyval_pos_arr,sizeof(keyval_pos_t)*total_count));
@@ -1097,6 +1097,8 @@ void ExecutePandaShuffleMergeGPU(panda_node_context *pnc, panda_gpu_context *pgc
 	int keySize_0, keySize_1;
 	bool equal;
 
+	ShowLog("DEBUG point");
+
 	int new_count = 0;
 	for (int i=0;i< pgc->sorted_key_vals.d_sorted_keyvals_arr_len;i++){
 		//ShowLog("keyPos:%d",keyval_pos_arr_0[i].keyPos);
@@ -1173,7 +1175,7 @@ void ExecutePandaShuffleMergeGPU(panda_node_context *pnc, panda_gpu_context *pgc
 			//printf("%s %d  valLen:%d\n",kvals_p->key,*(int*)(kvals_p->vals[0].val),val_arr_len);
 		}//if
 	}//if 
-
+	ShowLog("DEBUG point 2");
 	pnc->sorted_key_vals.sorted_intermediate_keyvals_arr = sorted_intermediate_keyvals_arr;
 
 	//ShowLog("GPU_ID:[%d] panda_context current length of shuffled keyval pairs:%d",d_g_state_gpu->gpu_id, d_g_state_panda->sorted_keyvals_arr_len);
