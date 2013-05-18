@@ -24,6 +24,8 @@
 #include <cstring>
 #include <string>
 
+int gCommRank=0;
+
 namespace panda
 {
 	
@@ -135,7 +137,7 @@ namespace panda
 	int numGPUCores = getGPUCoresNum();
 	dim3 blocks(THREAD_BLOCK_SIZE, THREAD_BLOCK_SIZE);
 	int numBlocks = (numGPUCores*16+(blocks.x*blocks.y)-1)/(blocks.x*blocks.y);
-    dim3 grids(numBlocks, 1);
+    	dim3 grids(numBlocks, 1);
 	int total_gpu_threads = (grids.x*grids.y*blocks.x*blocks.y);
 	ShowLog("GridDim.X:%d GridDim.Y:%d BlockDim.X:%d BlockDim.Y:%d TotalGPUThreads:%d",grids.x,grids.y,blocks.x,blocks.y,total_gpu_threads);
 
@@ -531,10 +533,14 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
 
   void PandaMapReduceJob::collectVariablesFromMessageAndKill()
   {
-    //if (reducer != NULL) 
+    //if (reducer != NULL)
     messager->MsgFinish();
+    ShowLog("MsgFinish commRank:%d",commRank);
     MessageThread->join();
-    delete MessageThread;
+    ShowLog("MsgJoin Complete commRank:%d",commRank);
+    //delete MessageThread;
+    //ShowLog("delete MessageThread");
+
     if (sorter != NULL || reducer != NULL)
     {
       messager->getFinalDataSize(keySize, valSize);
@@ -545,6 +551,7 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
         messager->getFinalData(keys, vals);
       }
     }
+    ShowLog("exit at message thread: commRank:%d",commRank);
   }
   void PandaMapReduceJob::getReduceRunParameters()
   {
@@ -945,8 +952,6 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
 		 this->pNodeContext->buckets.valSize[bucketId] = newValSizeArray;
 
 	  }//if
-	  	
-
   }//void
 
   void PandaMapReduceJob::PandaPartitionCheckSends(const bool sync)
@@ -954,10 +959,11 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
     std::vector<oscpp::AsyncIORequest * > newReqs;
     for (unsigned int j = 0; j < sendReqs.size(); ++j)
     {
-//	ShowLog("--------------------------------------------------------------------------------------");
+      //ShowLog("----------------------------------------------------------------: %d",j);
       if (sync) sendReqs[j]->sync();
       if (sendReqs[j]->query()) delete sendReqs[j];
       else    newReqs.push_back(sendReqs[j]);
+      //ShowLog("----------------------------------------------------------------: %d",j);
     }//for
     sendReqs = newReqs;
   }//void
@@ -969,8 +975,6 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
 	  int maxlen	  = 20;
 
 	  this->pNodeContext->buckets.numBuckets  = this->commSize;
-	  ShowLog(" ------------------------------------ :%d",this->commSize);
-
 	  this->pNodeContext->buckets.keyBuffSize = new int[this->commSize];
 	  this->pNodeContext->buckets.valBuffSize = new int[this->commSize];
 
@@ -1108,16 +1112,16 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
     if (mapper != NULL)
     {
 
-	  if (messager        != NULL) messager->MsgInit();
+      if (messager        != NULL) messager->MsgInit();
       if (partitioner     != NULL) partitioner->init();
       if (partialReducer  != NULL) partialReducer->init();
       if (combiner        != NULL) combiner->init();
 
-      mapper->init();
-      MPI_Barrier(MPI_COMM_WORLD);
-      totalTimer.start();
-      //map();
+      	mapper->init();
+      	MPI_Barrier(MPI_COMM_WORLD);
+      	totalTimer.start();
 
+      	  //map();
 	  //Panda Process
 	  startMessageThread();
 	  MPI_Barrier(MPI_COMM_WORLD);
@@ -1125,7 +1129,7 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
 	  InitPandaRuntime();
 	  if (messager        != NULL) {
 		  messager->setPnc(this->pNodeContext);
-	  }
+	  }//if
 
 	  InitPandaGPUMapReduce();
 	  StartPandaGPUMapTasks();
@@ -1163,31 +1167,36 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
 	//across mpi process 
 	//set it within MapReduceJob
 	//panda_node_context *pnc = new panda_node_context;// = CreatePandaContext();
-	
+	ShowLog("before StartPandaLocalMergeGPUOutput");	
 	//Send Back
 	StartPandaLocalMergeGPUOutput();
+
 	//TODO
 	//StartPandaShuffleMergeCPU();
+	
+	MPI_Barrier(MPI_COMM_WORLD);
+	ShowLog("before StartPandaGlobalPartition after MPI_Barrier");
 
 	StartPandaGlobalPartition();
-
+	ShowLog("before partitionCheckSends");
 	partitionCheckSends(true);
-    collectVariablesFromMessageAndKill();
+	
+	ShowLog("before collectVariablesFromMessageAndKill");
+    	collectVariablesFromMessageAndKill();
+	//ShowLog("after collectVariablesFromMessageAndKill");
 
 	//Job Scheduler Plan
 
 	int start_row_id = 0;
 	int end_row_id = this->pNodeContext->sorted_key_vals.sorted_keyvals_arr_len;
-	ShowLog("start_row_id:%d end_row_id:%d\n",start_row_id, end_row_id);
+	ShowLog("Tempal ending the computation (Reduce): start_row_id:%d end_row_id:%d\n",start_row_id, end_row_id);
 
 	if (reducer!=NULL){
+	//	StartPandaAddReduceTask4GPU(start_row_id, end_row_id);
+	//	StartPandaGPUReduceTasks();
+	}//if
 
-		StartPandaAddReduceTask4GPU(start_row_id, end_row_id);
-		StartPandaGPUReduceTasks();
-
-	}
-
-    fullReduceTimer.start();
+    //fullReduceTimer.start();
 
 	/*
     if (reducer != NULL && numUniqueKeys > 0)
@@ -1198,10 +1207,11 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
       reducer->finalize();
     }
 	*/
-    fullReduceTimer.stop();
-    fullTimer.stop();
 
-    collectTimings();
+    //fullReduceTimer.stop();
+    //fullTimer.stop();
+
+    //collectTimings();
     MPI_Barrier(MPI_COMM_WORLD);
   }
 }

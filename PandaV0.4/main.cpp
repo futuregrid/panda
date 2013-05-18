@@ -21,11 +21,10 @@ int main(int argc, char ** argv)
 {
 
   panda::MapReduceJob  * job = new panda::PandaMapReduceJob(argc, argv, true);
-
   int rank, size;
   //MPI_Comm_rank(MPI_COMM_WORLD, &rank);
   //MPI_Comm_size(MPI_COMM_WORLD, &size);
-  //printf("rank:%d size:%d\n",rank,size);
+  //printf("rank:%d size:%d\n", rank, size);
 
   job->setMessage (new panda::PandaMPIMessage(true));
   job->setMapper  (new WCMapper());
@@ -40,34 +39,42 @@ int main(int argc, char ** argv)
     	char fn[256];
 	char str[512];
 	char strInput[1024];
-	sprintf(fn,"/N/u/lihui/CUDA/github/panda/PandaV0.4/sample.txt");
+		
+	sprintf(fn,"/N/u/lihui/CUDA/github/panda/PandaV0.4/sample%d",gCommRank);
 	int  chunk_size = 2048;
 	char *chunk_data = (char *)malloc(sizeof(char)*(chunk_size+1000));
 	FILE *wcfp;
 	wcfp = fopen(fn, "r");
-	if(wcfp == NULL){
-		ShowLog("wcfp is null");
-	}//if
+	if(wcfp == NULL)
+		ShowLog("file:%s is broken",fn);
+	else
+		ShowLog("open file:%s",fn);
+	
 	const int NUM_ELEMENTS = 1;
 	int total_len = 0;
+	ShowLog("--------------------");
 	while(fgets(str,sizeof(str),wcfp) != NULL)
 	{
+
 		for (int i = 0; i < strlen(str); i++)
 		str[i] = toupper(str[i]);
 			
 		strcpy((chunk_data + total_len),str);
 		total_len += (int)strlen(str);
-		
+			
 		if(total_len>chunk_size){
-		printf("addInput data\n");
+		ShowLog("add one input chunk");
 		job->addInput(new panda::PreLoadedPandaChunk((char *)chunk_data, total_len, NUM_ELEMENTS ));
+		MPI_Barrier(MPI_COMM_WORLD);
 		job->execute();
 		total_len=0;
-
+		break;
 		}//if
-	}//while
-  }//if
 
-  delete job;
+	}//while
+
+  }//if
+  MPI_Finalize();
+  //delete job;
   return 0;
 }
