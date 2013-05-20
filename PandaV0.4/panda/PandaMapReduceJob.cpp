@@ -95,8 +95,9 @@ namespace panda
 	//0, Check status of pgc;
 	//-------------------------------------------------------
 			
-	if (pgc->input_key_vals.num_input_record<0) { ShowLog("Error: no any input keys"); exit(-1);}
+	if (pgc->input_key_vals.num_input_record<0)			{ ShowLog("Error: no any input keys"); exit(-1);}
 	if (pgc->input_key_vals.h_input_keyval_arr == NULL) { ShowLog("Error: h_input_keyval_arr == NULL"); exit(-1);}
+
 	//if (pgc->input_key_vals.num_mappers<=0) {pgc->num_mappers = (NUM_BLOCKS)*(NUM_THREADS);}
 	//if (pgc->input_key_vals.num_reducers<=0) {pgc->num_reducers = (NUM_BLOCKS)*(NUM_THREADS);}
 
@@ -231,11 +232,9 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
 	checkCudaErrors(cudaMalloc((void **)&pgc->input_key_vals.d_input_keyval_pos_arr,sizeof(keyval_pos_t)*pgc->input_key_vals.num_input_record));
 	checkCudaErrors(cudaMalloc((void **)&pgc->input_key_vals.d_input_keys_shared_buff, totalKeySize));
 	checkCudaErrors(cudaMalloc((void **)&pgc->input_key_vals.d_input_vals_shared_buff, totalValSize));
-
 	checkCudaErrors(cudaMemcpy(pgc->input_key_vals.d_input_keyval_pos_arr, input_keyval_pos_arr,sizeof(keyval_pos_t)*pgc->input_key_vals.num_input_record ,cudaMemcpyHostToDevice));
 	checkCudaErrors(cudaMemcpy(pgc->input_key_vals.d_input_keys_shared_buff, input_keys_shared_buff,totalKeySize ,cudaMemcpyHostToDevice));
 	checkCudaErrors(cudaMemcpy(pgc->input_key_vals.d_input_vals_shared_buff, input_vals_shared_buff,totalValSize ,cudaMemcpyHostToDevice));
-
 	//checkCudaErrors(cudaMemcpy(pgc->d_input_keyval_arr,h_buff,sizeof(keyval_t)*pgc->num_input_record,cudaMemcpyHostToDevice));
 	cudaThreadSynchronize(); 
 	//pgc->iterative_support = true;
@@ -533,12 +532,13 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
 
   void PandaMapReduceJob::collectVariablesFromMessageAndKill()
   {
+
     //if (reducer != NULL)
     messager->MsgFinish();
-    ShowLog("MsgFinish commRank:%d",commRank);
     MessageThread->join();
-    ShowLog("MsgJoin Complete commRank:%d",commRank);
-    //delete MessageThread;
+    ShowLog("MsgThread Join Complete.");
+
+    delete MessageThread;
     //ShowLog("delete MessageThread");
 
     if (sorter != NULL || reducer != NULL)
@@ -551,7 +551,6 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
         messager->getFinalData(keys, vals);
       }
     }
-    ShowLog("exit at message thread: commRank:%d",commRank);
   }
   void PandaMapReduceJob::getReduceRunParameters()
   {
@@ -574,10 +573,12 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
       keyCount.push_back(numKeysToProcess);
     }
   }
+
   PandaGPUConfig & PandaMapReduceJob::getReduceConfig(const int index)
   {
     return configs[index % configs.size()];
   }
+
   void PandaMapReduceJob::allocateReduceVariables()
   {
     gpuKeys             = cudacpp::Runtime::mallocDevice    (numBuffers * maxKeySpace);
@@ -589,6 +590,7 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
     cpuKeys             = cudacpp::Runtime::mallocHost(numBuffers * maxKeySpace);
     cpuVals             = cudacpp::Runtime::mallocHost(numBuffers * maxValSpace);
   }
+
   void PandaMapReduceJob::freeReduceVariables()
   {
     if (keys               != NULL) cudacpp::Runtime::freeHost(keys);
@@ -604,6 +606,7 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
     if (valOffsets         != NULL) cudacpp::Runtime::freeHost(valOffsets);
     if (numVals            != NULL) cudacpp::Runtime::freeHost(numVals);
   }
+
   void PandaMapReduceJob::copyReduceInput(const int index, const int keysSoFar)
   {
     const int keyCount = std::min(numUniqueKeys, emitConfigs[index].getIndexCount());
@@ -842,6 +845,69 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
   void PandaMapReduceJob::StartPandaGPUCombiner()
   {
 	  ExecutePandaGPUCombiner(this->pGPUContext);
+  }//void 
+			
+  void PandaMapReduceJob::StartPandaSortBucket()
+  {			
+
+	  ExecutePandaSortBucket(this->pNodeContext);
+
+	  
+	}//for
+
+  void PandaMapReduceJob::StartPandaCopyRecvedBucketToGPU()
+  {
+	  int numEle = this->pNodeContext->recv_buckets.savedKeysBuff.size();
+	  keyvals_t * sorted_intermediate_keyvals_arr = (keyvals_t*)malloc(numEle*sizeof(keyvals_t));
+	  
+	  for (int i=0;i<numEle;i++){
+		  
+		  keyvals_t *pkvt = &(sorted_intermediate_keyvals_arr[i]);
+		  
+		  int *keyPos  = this->pNodeContext->recv_buckets.keyPos[i];
+		  int *keySize = this->pNodeContext->recv_buckets.keySize[i];
+		  int *valPos  = this->pNodeContext->recv_buckets.valPos[i];
+		  int *valSize = this->pNodeContext->recv_buckets.valSize[i];
+		  
+		  char *keyBuff = this->pNodeContext->recv_buckets.savedKeysBuff[i];
+		  char *valBuff = this->pNodeContext->recv_buckets.savedValsBuff[i];
+			
+		  int *counts = this->pNodeContext->recv_buckets.counts[i];
+		  int numPairs = counts[0];
+		  int keyBuffSize = counts[1];
+		  int valBuffSize = counts[2];
+
+		  ShowLog("numPairs:%d keyBuffSize:%d valBuffSize:%d keyPos[0]:%d keySize[0]:%d valPos[0]:%d valSize:[0]:%d",
+			  numPairs, keyBuffSize, valBuffSize, keyPos[0], keySize[0], valPos[0], valSize[0]);
+			
+		  for (int j=0;j<numPairs;j++)
+		  {	 
+			  if(keyPos[j]+keySize[j]>keyBuffSize) ShowError("keyPos over access keyBuff");
+			  if(valPos[j]+valSize[j]>valBuffSize) ShowError("valPos over access valBuff");
+
+			  pkvt->keySize = keySize[j];
+			  pkvt->key	= new char[keySize[j]];
+			  memcpy(pkvt->key,keyBuff+keyPos[j],keySize[j]);
+
+			  pkvt->val_arr_len = 1;
+			  pkvt->vals = (val_t*)malloc(sizeof(val_t)*pkvt->val_arr_len);
+			  printf("valSize:%d\n",valSize[j]);
+											
+			  pkvt->vals[0].valSize = valSize[j];
+			  pkvt->vals[0].val		= malloc(valSize[j]);
+
+			  memcpy(pkvt->vals[0].val,valBuff+valPos[j], valSize[j]);
+			
+		  }	//for
+			
+	  }//for
+
+	  //TODO free previous sorted_intermediate_keyvals_arr?
+	  this->pNodeContext->sorted_key_vals.sorted_intermediate_keyvals_arr = sorted_intermediate_keyvals_arr;
+	  this->pNodeContext->sorted_key_vals.sorted_keyvals_arr_len = numEle;
+	  //end_row_id = numEle; < numEle
+	  //AddReduceTask4GPU(this->pGPUContext,this->pNodeContext,0,numEle);
+
   }//void
 
   void PandaMapReduceJob::StartPandaAddReduceTask4GPU(int start_row_id, int end_row_id)
@@ -877,8 +943,8 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
 	  int curlen	 = counts[0];
 	  int maxlen	 = counts[1];
 
-	  //printf("bucketId:%d  0:%d 1:%d,2:%d,3:%d  curlen:%d  maxlen:%d\n",bucketId,counts[0],counts[1],counts[2],counts[3],curlen,maxlen);
-	  //printf("keyPos.size:%d\n",this->pNodeContext->buckets.keyPos.size());
+  //printf("bucketId:%d  0:%d 1:%d,2:%d,3:%d  curlen:%d  maxlen:%d\n",bucketId,counts[0],counts[1],counts[2],counts[3],curlen,maxlen);
+  //printf("keyPos.size:%d\n",this->pNodeContext->buckets.keyPos.size());
 
 	  int keyBufflen = counts[2];
 	  int valBufflen = counts[3];
@@ -888,7 +954,6 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
 	  int *keySizeArray = this->pNodeContext->buckets.keySize[bucketId];
 	  int *valSizeArray = this->pNodeContext->buckets.valSize[bucketId];
 
-
 	  if (keyBufflen + keySize >= keyBuffSize){
 
 			char *newKeyBuff = (char*)malloc(2*keyBuffSize);
@@ -897,7 +962,7 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
 			memcpy(newKeyBuff+keyBufflen, key, keySize);
 			counts[2] = keyBufflen + keySize;
 			this->pNodeContext->buckets.savedKeysBuff[bucketId] = newKeyBuff;
-			this->pNodeContext->buckets.keyBuffSize[bucketId] = 2*keyBuffSize;
+			this->pNodeContext->buckets.keyBuffSize[bucketId]   = 2*keyBuffSize;
 			//TODO remove keyBuff in std::vector
 			//delete [] keyBuff
 
@@ -927,7 +992,7 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
 	  }//else
 
 	  keyPosArray[curlen]  = keyBufflen;
-      valPosArray[curlen]  = valBufflen;
+          valPosArray[curlen]  = valBufflen;
 	  keySizeArray[curlen] = keySize;
 	  valSizeArray[curlen] = valSize;
 
@@ -959,11 +1024,9 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
     std::vector<oscpp::AsyncIORequest * > newReqs;
     for (unsigned int j = 0; j < sendReqs.size(); ++j)
     {
-      //ShowLog("----------------------------------------------------------------: %d",j);
       if (sync) sendReqs[j]->sync();
       if (sendReqs[j]->query()) delete sendReqs[j];
       else    newReqs.push_back(sendReqs[j]);
-      //ShowLog("----------------------------------------------------------------: %d",j);
     }//for
     sendReqs = newReqs;
   }//void
@@ -987,43 +1050,34 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
 		  char *valBuff = new char[valBuffSize];
 		  this->pNodeContext->buckets.savedKeysBuff.push_back((char*)keyBuff);
 		  this->pNodeContext->buckets.savedValsBuff.push_back((char*)valBuff);
-
 		  int *keyPos  = new int[maxlen];
 		  int *valPos  = new int[maxlen];
 		  int *keySize = new int[maxlen];
 		  int *valSize = new int[maxlen];
-
 		  this->pNodeContext->buckets.keyPos.push_back(keyPos);
 		  this->pNodeContext->buckets.valPos.push_back(valPos);
 		  this->pNodeContext->buckets.valSize.push_back(valSize);
 		  this->pNodeContext->buckets.keySize.push_back(keySize);
-
 		  int* counts_i = new int[4];
 		  counts_i[0] = 0;		//curlen
 		  counts_i[1] = maxlen;	
 		  counts_i[2] = 0;		//keybufflen
 		  counts_i[3] = 0;		//valbufflen
 		  this->pNodeContext->buckets.counts.push_back(counts_i);
-		  
 	  }//for
 
 	  keyvals_t *sorted_intermediate_keyvals_arr1 = this->pNodeContext->sorted_key_vals.sorted_intermediate_keyvals_arr;
 	  for (int i=0; i<this->pNodeContext->sorted_key_vals.sorted_keyvals_arr_len; i++){
-
 		char *key	 = (char *)(sorted_intermediate_keyvals_arr1[i].key);
 		int keySize  = sorted_intermediate_keyvals_arr1[i].keySize;
-
 		int bucketId = GetHash(key,keySize,this->commSize);
 		val_t *vals  = sorted_intermediate_keyvals_arr1[i].vals;
 		int len = sorted_intermediate_keyvals_arr1[i].val_arr_len;
-
 		for (int j=0;j<len;j++){
 			AddKeyValue2Bucket(bucketId, (char *)key, keySize,(char *)(vals[j].val),vals[j].valSize);
 		}//for
-
 	  }//for
-
-	  ShowLog("AddKeyValue2Bucket Done\n");
+	  //ShowLog("AddKeyValue2Bucket Done\n");
 
   }//void
 
@@ -1036,6 +1090,9 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
 	  int maxlen	= this->pNodeContext->buckets.counts[index][1];
 	  int keySize	= this->pNodeContext->buckets.counts[index][2];
 	  int valSize	= this->pNodeContext->buckets.counts[index][3];
+
+	  ShowLog("index:%d curlen:%d maxlen:%d keySize:%d valSize:%d",index,curlen,maxlen,keySize,valSize);
+
 	  char *keyBuff = this->pNodeContext->buckets.savedKeysBuff[index];
 	  char *valBuff = this->pNodeContext->buckets.savedValsBuff[index];
 
@@ -1046,6 +1103,11 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
 	  
 	  int *keyPosKeySizeValPosValSize = new int[curlen*4];
 	  
+	  if(keyPosArray==NULL)  ShowLog("Error");
+	  if(valSizeArray==NULL) ShowLog("Error");
+	  if(keyPosArray==NULL)  ShowLog("Error");
+	  if(valPosArray==NULL)  ShowLog("Error");
+ 
 	  for (int i=0; i<curlen; i++){
 		keyPosKeySizeValPosValSize[i] = keyPosArray[i];
 	  }//for
@@ -1059,19 +1121,19 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
 		keyPosKeySizeValPosValSize[i] = valSizeArray[i-3*curlen];
 	  }//for
 
-      int i = (index + commRank) % commSize;
+      int i = (index + commRank + commSize - 1) % commSize;
       
       if (keySize+valSize > 0) // it can happen that we send nothing.
       {
         oscpp::AsyncIORequest * ioReq = messager->sendTo(i,
-                                                       keyBuff,
-                                                       valBuff,
-													   keyPosKeySizeValPosValSize,
-                                                       keySize,
-                                                       valSize,
-													   curlen);
+                                                       	keyBuff,
+                                                       	valBuff,
+						   								keyPosKeySizeValPosValSize,
+                                                       	keySize,
+                                                     	valSize,
+						   								curlen);
         sendReqs.push_back(ioReq);
-      }
+      }//if
     }
   }//void
 
@@ -1081,6 +1143,7 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
 	  PandaPartitionCheckSends(false);
 	  StartPandaDoPartitionOnCPU();
 	  StartPandaPartitionSubSendData();
+
       if (syncPartSends) PandaPartitionCheckSends(true);
 
 	  /*this->pNodeContext->buckets.savedKeysBuff.clear();
@@ -1117,11 +1180,11 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
       if (partialReducer  != NULL) partialReducer->init();
       if (combiner        != NULL) combiner->init();
 
-      	mapper->init();
-      	MPI_Barrier(MPI_COMM_WORLD);
-      	totalTimer.start();
+      mapper->init();
+      MPI_Barrier(MPI_COMM_WORLD);
+      totalTimer.start();
 
-      	  //map();
+      //map();
 	  //Panda Process
 	  startMessageThread();
 	  MPI_Barrier(MPI_COMM_WORLD);
@@ -1135,7 +1198,6 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
 	  StartPandaGPUMapTasks();
 	  //if(d_g_state->local_combiner){
 	  StartPandaGPUCombiner();
-	  //}
 
       //mapper->finalize();
       if (messager        != NULL) messager->MsgFinalize();
@@ -1145,55 +1207,47 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
 
     }//if
 
-	
-
     fullMapTimer.stop();
-
 	double t3 = PandaTimer();
-
     sortTimer.start();
     if (sorter != NULL)
     {
-      //sorter->init();
-      //sort();
-      //sorter->finalize();
-
+      //Sorter->init();
+      //Sort();
+      //Sorter->finalize();
 	  //Panda Code
 	  StartPandaSortGPUResults();
     }//if
     sortTimer.stop();
 
-	//TODO
-	//across mpi process 
-	//set it within MapReduceJob
-	//panda_node_context *pnc = new panda_node_context;// = CreatePandaContext();
+
 	ShowLog("before StartPandaLocalMergeGPUOutput");	
-	//Send Back
+
 	StartPandaLocalMergeGPUOutput();
 
 	//TODO
-	//StartPandaShuffleMergeCPU();
+	//	StartPandaSortCPU();
 	
 	MPI_Barrier(MPI_COMM_WORLD);
-	ShowLog("before StartPandaGlobalPartition after MPI_Barrier");
 
 	StartPandaGlobalPartition();
-	ShowLog("before partitionCheckSends");
 	partitionCheckSends(true);
 	
-	ShowLog("before collectVariablesFromMessageAndKill");
-    	collectVariablesFromMessageAndKill();
-	//ShowLog("after collectVariablesFromMessageAndKill");
-
+    collectVariablesFromMessageAndKill();
 	//Job Scheduler Plan
+	ShowLog("Temple ending the computation (Reduce) #Tasks:%d\n",this->pNodeContext->recv_buckets.savedKeysBuff.size());
+	StartPandaSortBucket();
+	StartPandaCopyRecvedBucketToGPU();
 
 	int start_row_id = 0;
 	int end_row_id = this->pNodeContext->sorted_key_vals.sorted_keyvals_arr_len;
-	ShowLog("Tempal ending the computation (Reduce): start_row_id:%d end_row_id:%d\n",start_row_id, end_row_id);
+
+	//TODO disabled due to Task4GPU
+	//StartPandaAddReduceTask4GPU(0, 1);
 
 	if (reducer!=NULL){
-	//	StartPandaAddReduceTask4GPU(start_row_id, end_row_id);
-	//	StartPandaGPUReduceTasks();
+		StartPandaAddReduceTask4GPU(start_row_id, end_row_id);
+		StartPandaGPUReduceTasks();
 	}//if
 
     //fullReduceTimer.start();

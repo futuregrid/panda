@@ -36,7 +36,6 @@ namespace panda
 
 	oscpp::AsyncIORequest * PandaMPIMessage::MsgFinish()
 	{
-	//ShowLog("send to :%d",commRank);
     	return sendTo(commRank, NULL, NULL, NULL, -1, -1, -1);
 	}//oscpp
 
@@ -50,8 +49,15 @@ namespace panda
     	int  ** keyRecv         = new int*[commSize];
     	int  ** valRecv         = new int*[commSize];
 	int  ** keyPosKeySizeValPosValSize = new int*[commSize];
-	ShowLog("Start to run the message thread");
-
+	
+	ShowLog("Start PandaMPIMessage Thread ...");
+	if(workerDone==NULL)ShowLog("Error");
+	if(recvingCount==NULL)ShowLog("Error");
+	if(counts==NULL)ShowLog("Error");
+	if(keyRecv==NULL)ShowLog("Error");
+	if(valRecv==NULL)ShowLog("Error");
+	if(keyPosKeySizeValPosValSize==NULL)ShowLog("Error");
+	
     	MPI_Request * recvReqs  = new MPI_Request[commSize * 3];
 	for (int i = 0; i < commSize; ++i)
     	{
@@ -62,20 +68,17 @@ namespace panda
   	keyPosKeySizeValPosValSize[i] = NULL;
       	MPI_Irecv(counts + i * 3, 3, MPI_INT, i, 0, MPI_COMM_WORLD, recvReqs + i * 3);
     	}//for
+
 	MPI_Barrier(MPI_COMM_WORLD);
-	ShowLog("message thread after MPI_Irecv");
 
 	innerLoopDone 	= false;
    	int loopc 	= 0; 
 	while (!innerLoopDone || finishedWorkers < commSize)
     	{
       	poll(finishedWorkers, workerDone, recvingCount, counts, keyRecv, valRecv, keyPosKeySizeValPosValSize, recvReqs);
-	//if((loopc%10) == 0)      	
-	   ShowLog("loop to poll the status of sending out data. finishedWorkers:%d loop:%d", finishedWorkers, loopc++);	
 	pollSends();
     	}//while
 
-	ShowLog("before MPI_Waitall ready to exit run()");
     	MPI_Waitall(commSize, &zeroReqs[0], MPI_STATUSES_IGNORE);
 
     	delete [] workerDone;
@@ -91,12 +94,12 @@ namespace panda
                                              void * const keys,
                                              void * const vals,
                                              const int keySize,
-											 const int valSize) 
+					     const int valSize) 
 	  {
-		  return NULL;
+	  return NULL;
 	  }
 
-      oscpp::AsyncIORequest * PandaMPIMessage::sendTo(const int rank,
+      	  oscpp::AsyncIORequest * PandaMPIMessage::sendTo(const int rank,
                                              void * const keys,
                                              void * const vals,
                                              int * const keySizes,
@@ -104,8 +107,8 @@ namespace panda
                                              const int numKeys,
 					     const int numVals) 
 	  {
-		  return NULL;
-	  }
+	  return NULL;
+	  }//oscpp
 
    //replace with ADIOS interface
    //write through MPI send and receive
@@ -192,7 +195,6 @@ namespace panda
 
   bool PandaMPIMessage::pollUnsent()
   {
-
 	keyvals_t *sorted_intermediate_keyvals_arr = pnc->sorted_key_vals.sorted_intermediate_keyvals_arr;
 	int sorted_intermediate_keyvals_arr_len    = pnc->sorted_key_vals.sorted_keyvals_arr_len;
 	
@@ -212,29 +214,32 @@ namespace panda
     	}//if
     	addDataLock.unlock();
 
-    	if (data == NULL) return false;
+    	if (data == NULL){
+		return false;
+	}//if
 
     	if (data->rank == commRank)
     	{
 
-	ShowLog("  data->rank == commRank data->counts[0]:%d (maxlen)", data->counts[0]);
-
-  	if (data->counts[0] >= 0)
+  		if (data->counts[0] >= 0)
         {
-	      //data->counts[0] >= 0
-	      //send to local host, be used for reduce task
-              //privateAdd(data->keys, data->vals, data->keySize, data->valSize);
+	        //send to local host, be used for reduce task
+			PandaAddRecvedBucket((char *)(data->keysBuff), (char *)(data->valsBuff), data->keyPosKeySizeValPosValSize, data->keyBuffSize, data->valBuffSize,data->counts[0]);
         }//if
         else
         {
-	//finish the messager data->counts[0] == -1
-        innerLoopDone = true;
-        for (int i = 0; i < commSize; ++i)
-        {
-	  //send zero count to ask receiver to exit the processing for peroformance issue
-          MPI_Isend(zeroCount, 3, MPI_INT, i, 0, MPI_COMM_WORLD, &zeroReqs[i]);
-        }
-      	}//
+			//finish the messager data->counts[0] == -1
+			innerLoopDone = true;
+			//The difference between SendTo(NULL,NULL,NULL,-1,-1,-1); is there is no need to creat data object
+          for (int i = 0; i < commSize; ++i)
+          {
+			//the current messager is exiting and notify the other process prepare for exiting as well.
+			//send zero count to ask receiver to exit the processing for peroformance issue
+			//zeroCount;
+			MPI_Isend(zeroCount, 3, MPI_INT, i, 0, MPI_COMM_WORLD, &zeroReqs[i]);
+			//there is no need to push to pendingIO.
+          } //for
+      	}   //
 
         data->cond->lockMutex();
         if (*data->waiting) {
@@ -248,10 +253,9 @@ namespace panda
     	}//if
     	else
     	{
-	  ShowLog("   data->rank != commRank data->counts[0]:%d (maxlen) send data asynchronizally", data->counts[0]);
 	  //send data asynchronizally, and put it in the pending task queue
 	  if(data->counts[0] ==  0)
-		ShowLog(" !!!!!!!!!!!!!!!!!!!! logic error here\n");
+		ShowLog("! logic error here\n");
 
       	  MPI_Isend(data->counts,      3,    MPI_INT,     data->rank,  0,  MPI_COMM_WORLD, &data->reqs[0]);
 	  MPI_Isend(data->keysBuff,    data->keyBuffSize, MPI_CHAR, data->rank, 0, MPI_COMM_WORLD, &data->reqs[1]);
@@ -308,6 +312,42 @@ namespace panda
     	  pollPending();
 	}//void
 
+	void PandaMPIMessage::PandaAddRecvedBucket(char *keyRecv, char *valRecv, int *keyPosKeySizeValPosValSize, int keyBuffSize, int valBuffSize, int maxlen)
+	{	
+		//keyRecv[i], valRecv[i], keyPosKeySizeValPosValSize[i], counts[i * 3 + 1], counts[i * 3 + 2], counts[i * 3 + 2])
+		
+		char *newKeyRecv = new char[keyBuffSize];
+		memcpy(newKeyRecv, keyRecv, keyBuffSize);
+		pnc->recv_buckets.savedKeysBuff.push_back(newKeyRecv);
+
+		char *newValRecv = new char[valBuffSize];
+		memcpy(newValRecv, valRecv, valBuffSize);
+		pnc->recv_buckets.savedValsBuff.push_back(newValRecv);
+		
+		int *keyPosArray = new int[maxlen];
+		memcpy(keyPosArray, keyPosKeySizeValPosValSize, maxlen*sizeof(int));
+		pnc->recv_buckets.keyPos.push_back(keyPosArray);
+
+		int *keySizeArray = new int[maxlen];
+		memcpy(keySizeArray, keyPosKeySizeValPosValSize+maxlen, maxlen*sizeof(int));
+		pnc->recv_buckets.keySize.push_back(keySizeArray);
+
+		int *valPosArray = new int[maxlen];
+		memcpy(valPosArray, keyPosKeySizeValPosValSize+2*maxlen, maxlen*sizeof(int));
+		pnc->recv_buckets.valPos.push_back(valPosArray);
+
+		int *valSizeArray = new int[maxlen];
+		memcpy(valSizeArray, keyPosKeySizeValPosValSize+3*maxlen, maxlen*sizeof(int));
+		pnc->recv_buckets.valSize.push_back(valSizeArray);
+		
+		int *counts = new int[3];
+		counts[0] = maxlen;
+		counts[1] = keyBuffSize;
+		counts[2] = valBuffSize;
+		pnc->recv_buckets.counts.push_back(counts);
+		
+	}
+
 	void PandaMPIMessage::poll(int & finishedWorkers,
                                bool * const workerDone,
                                bool * const recvingCount,
@@ -317,9 +357,7 @@ namespace panda
 			       int ** keyPosKeySizeValPosValSize,
                                MPI_Request * recvReqs)
   {
-	if(gCommRank==1)ShowLog("Debug point 1.1");
     pollSends();
-	if(gCommRank==1)ShowLog("Debug point 1.2");
 
     int flag;
     MPI_Status stat[3];
@@ -327,79 +365,74 @@ namespace panda
     for (int i = 0; i < commSize; ++i)
     {
 
-      //ShowLog("commRank:%d  to i:%d", commRank, i);
       if (workerDone[i]) continue;
       //this is the head component of the communication protocal
       if (recvingCount[i])
       {
-
         MPI_Test(recvReqs + i * 3, &flag, stat);
         
 	if (flag)
         {
-          printf("[%2d] - recv'd counts[0]:%d counts[1]:%d counts[2]:%d from [%d] \n", 
-			commRank, counts[i * 3 + 0], counts[i * 3 + 1], counts[i * 3 + 2], i); 
+          ShowLog(" - recv'd counts[0]:%d counts[1]:%d counts[2]:%d from [%d] ", 
+			counts[i * 3 + 0], counts[i * 3 + 1], counts[i * 3 + 2], i); 
 	  fflush(stdout);
           recvingCount[i] = false;
-          if (counts[i * 3] == 0)
+          if (counts[i * 3] == 0)  //zeroCount
           {
-
             workerDone[i] = true;
             ++finishedWorkers;
-
-          printf("[%2d] - recv'd 'finished' command from %d, now have %d finished workers.\n", commRank, i, finishedWorkers); 
+            ShowLog(" - recv'd 'finished' command from %d, now have %d finished workers.", i, finishedWorkers); 
 	  
-	  //fflush(stdout);
-	  //TODO
+	    //fflush(stdout);
+	    //TODO
 	  
           }//if
           else
           {
-	  printf("%2d   recving key val from %d\n",commRank,i);
+	    ShowLog(" - recv'd counts[0]:%d counts[1]:%d counts[2]:%d from [%d] ", 
+      		counts[i * 3 + 0], counts[i * 3 + 1], counts[i * 3 + 2], i); 
 
             keyRecv[i] = new int[(counts[i * 3 + 1] + sizeof(int) - 1) / sizeof(int)];
             valRecv[i] = new int[(counts[i * 3 + 2] + sizeof(int) - 1) / sizeof(int)];
-            //keyRecv[i] = new char[counts[i*3+1]];
-	    //valRecv[i] = new char[counts[i*3+2]];
 	    keyPosKeySizeValPosValSize[i] = new int[4*counts[i * 3 + 0]];
 	
-            MPI_Irecv(keyRecv[i], counts[i * 3 + 1], MPI_CHAR, i, 0, MPI_COMM_WORLD, recvReqs + i * 3 + 1);
-            MPI_Irecv(valRecv[i], counts[i * 3 + 2], MPI_CHAR, i, 0, MPI_COMM_WORLD, recvReqs + i * 3 + 2);
-	    MPI_Irecv(keyPosKeySizeValPosValSize[i], 4*counts[i * 3 + 0], MPI_INT, i, 0, MPI_COMM_WORLD, recvReqs + i * 3 + 0);
+            MPI_Irecv((char*)(keyRecv[i]), counts[i * 3 + 1], MPI_CHAR, i, 0, MPI_COMM_WORLD, recvReqs + i * 3 + 1);
+            MPI_Irecv((char*)(valRecv[i]), counts[i * 3 + 2], MPI_CHAR, i, 0, MPI_COMM_WORLD, recvReqs + i * 3 + 2);
+			MPI_Irecv(keyPosKeySizeValPosValSize[i], 4*counts[i * 3 + 0], MPI_INT, i, 0, MPI_COMM_WORLD, recvReqs + i * 3 + 0);
 	
           }	//else
         }	//if flag
       }	  	//if recvingCount[i]
       else
       {
-	//	recvingCount[i] != true
-	//      all the data transfer have been completed.
+
+		//	recvingCount[i] != true
+		//  all the data transfer have been completed.
+		//	to test recvReqs
 	
         MPI_Testall(3, recvReqs + i * 3, &flag, stat);
-	printf("MPI_Testall: commRank:%d  i:%d\n",commRank,i);
 
         if (flag)
         {
-	  ShowLog("MPI_Testall commRank:%d  i:%d",commRank,i);
-          //add the data to reduce task 
-          //privateAdd(keyRecv[i], valRecv[i], counts[i * 2 + 0], counts[i * 2 + 1]);
+          //data have been received, add the data to reduce task 
+		  PandaAddRecvedBucket((char *)keyRecv[i], (char *)valRecv[i], keyPosKeySizeValPosValSize[i], counts[i * 3 + 1], counts[i * 3 + 2], counts[i * 3 + 2]);
+
           recvingCount[i] = true;
+		  //the last signal zeroCount
           MPI_Irecv(counts + i * 3, 3, MPI_INT, i, 0, MPI_COMM_WORLD, recvReqs + i * 3);
-	  printf("rank:%d has received the data and prepare to exit counts[0]:%d counts[1]:%d counts[2]:%d\n", 
-			commRank, counts[0], counts[1], counts[2]);
-	  //TODO
+	  
           //delete [] keyRecv[i];
           //delete [] valRecv[i];
+		  //TODO delete keyPosKeySizeValPosValSize
 
-	  printf("rank:%d after removing key val\n", commRank);
-	  //TODO delete keyPosKeySizeValPosValSize
         }//MPI_Testall
       }//else
     }
   }
 
-	void PandaMessage::setPnc(panda_node_context *pnc){
+	
 
+	void PandaMessage::setPnc(panda_node_context *pnc){
 
 	}
 
@@ -484,7 +517,6 @@ namespace panda
     int index = 0;
     while (++index < MAX_SENDS_PER_LOOP && pollUnsent()) { }
     index = 0;
-    ShowLog("-------------------------------------after pollUnsent");
     pollPending();
   }//void
 
@@ -513,7 +545,6 @@ namespace panda
           {
             workerDone[i] = true;
             ++finishedWorkers;
-            // printf("%2d - recv'd 'finished' command from %d, now have %d finished workers.\n", commRank, i, finishedWorkers); fflush(stdout);
           }
           else
           {

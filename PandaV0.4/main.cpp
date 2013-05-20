@@ -38,7 +38,6 @@ int main(int argc, char ** argv)
   {
     	char fn[256];
 	char str[512];
-	char strInput[1024];
 		
 	sprintf(fn,"/N/u/lihui/CUDA/github/panda/PandaV0.4/sample%d",gCommRank);
 	int  chunk_size = 2048;
@@ -52,16 +51,13 @@ int main(int argc, char ** argv)
 	
 	const int NUM_ELEMENTS = 1;
 	int total_len = 0;
-	ShowLog("--------------------");
 	while(fgets(str,sizeof(str),wcfp) != NULL)
 	{
 
 		for (int i = 0; i < strlen(str); i++)
 		str[i] = toupper(str[i]);
-			
 		strcpy((chunk_data + total_len),str);
 		total_len += (int)strlen(str);
-			
 		if(total_len>chunk_size){
 		ShowLog("add one input chunk");
 		job->addInput(new panda::PreLoadedPandaChunk((char *)chunk_data, total_len, NUM_ELEMENTS ));

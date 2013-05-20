@@ -130,12 +130,14 @@ namespace panda
 	  virtual void StartPandaLocalMergeGPUOutput();
 	  virtual void StartPandaGlobalPartition();
 	  virtual void StartPandaDoPartitionOnCPU();
+	  virtual void StartPandaSortBucket();
 
 	  virtual void StartPandaAddReduceTask4GPU(int start_row_id, int end_row_id);
 	  virtual int  StartPandaGPUMapTasks();
 	  virtual int  StartPandaGPUReduceTasks();
 	  virtual void PandaPartitionCheckSends(const bool sync);
 	  virtual void StartPandaPartitionSubSendData();
+	  virtual void StartPandaCopyRecvedBucketToGPU();
 
 	  //virtual void StartPandaRuntimeMerge();
 	  virtual int GetHash(const char* Key, int KeySize, int commRank );

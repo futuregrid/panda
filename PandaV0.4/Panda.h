@@ -819,7 +819,7 @@ __global__ void printData3(gpu_context d_g_state);
 extern int gCommRank;
 
 #ifdef _DEBUG
-#define ShowLog(...) do{printf("[%d]",gCommRank);printf("[%s]\t",__FUNCTION__);printf(__VA_ARGS__);printf("\n");}while(0)
+#define ShowLog(...) do{printf("[%d]",gCommRank);printf("[%s]\t",__FUNCTION__);printf(__VA_ARGS__);printf("\n");fflush(stdout);}while(0)
 #else
 #define ShowLog(...) //do{printf(__VA_ARGS__);printf("\n");}while(0)
 #endif

@@ -245,20 +245,20 @@ __global__ void copyDataFromDevice2Host2(panda_gpu_context pgc)
 
 	for(int local_idx = 0; local_idx<(shared_arr_len); local_idx++){
 
-		keyval_pos_t *p2 = (keyval_pos_t *)((char *)shared_buff + shared_buff_len - sizeof(keyval_pos_t)*(shared_arr_len - local_idx ));
-		if (local_combiner && p2->next_idx != _COMBINE)		continue;
-		//	if (p2->task_idx != i) 		continue;
-		int global_idx = p2->task_idx;
-		val_pos = pgc.intermediate_key_vals.d_intermediate_keyval_pos_arr[global_idx].valPos;
-		key_pos = pgc.intermediate_key_vals.d_intermediate_keyval_pos_arr[global_idx].keyPos;
+	keyval_pos_t *p2 = (keyval_pos_t *)((char *)shared_buff + shared_buff_len - sizeof(keyval_pos_t)*(shared_arr_len - local_idx ));
+	if (local_combiner && p2->next_idx != _COMBINE)		continue;
+	//	if (p2->task_idx != i) 		continue;
+	int global_idx = p2->task_idx;
+	val_pos = pgc.intermediate_key_vals.d_intermediate_keyval_pos_arr[global_idx].valPos;
+	key_pos = pgc.intermediate_key_vals.d_intermediate_keyval_pos_arr[global_idx].keyPos;
 
-		val_p = (char*)(pgc.intermediate_key_vals.d_intermediate_vals_shared_buff)+val_pos;
-		key_p = (char*)(pgc.intermediate_key_vals.d_intermediate_keys_shared_buff)+key_pos;
+	val_p = (char*)(pgc.intermediate_key_vals.d_intermediate_vals_shared_buff)+val_pos;
+	key_p = (char*)(pgc.intermediate_key_vals.d_intermediate_keys_shared_buff)+key_pos;
 
-		memcpy(key_p, shared_buff + p2->keyPos, p2->keySize);
-		memcpy(val_p, shared_buff + p2->valPos, p2->valSize);
+	memcpy(key_p, shared_buff + p2->keyPos, p2->keySize);
+	memcpy(val_p, shared_buff + p2->valPos, p2->valSize);
 
-		counter++;
+	counter++;
 	}
 	if(counter!=end-begin)
 		ShowWarn("counter!=end-begin counter:%d end-begin:%d",counter,end-begin);
@@ -685,7 +685,6 @@ void ExecutePandaGPUShuffle(panda_gpu_context* pgc){
 
 	///////////////////////////////////////////////////////////////////////////////////////////////////
 	//transfer the d_sorted_keyval_pos_arr to h_sorted_keyval_pos_arr
-	ShowLog("DEBUG point start to transfer the d_sorted_keyval_pos_arr to h_sorted_keyval_pos_arr");
 
 	sorted_keyval_pos_t * h_sorted_keyval_pos_arr = NULL;
 	for (int i=0; i<total_count; i++){
@@ -1097,7 +1096,6 @@ void ExecutePandaShuffleMergeGPU(panda_node_context *pnc, panda_gpu_context *pgc
 	int keySize_0, keySize_1;
 	bool equal;
 
-	ShowLog("DEBUG point");
 
 	int new_count = 0;
 	for (int i=0;i< pgc->sorted_key_vals.d_sorted_keyvals_arr_len;i++){
@@ -1175,7 +1173,6 @@ void ExecutePandaShuffleMergeGPU(panda_node_context *pnc, panda_gpu_context *pgc
 			//printf("%s %d  valLen:%d\n",kvals_p->key,*(int*)(kvals_p->vals[0].val),val_arr_len);
 		}//if
 	}//if 
-	ShowLog("DEBUG point 2");
 	pnc->sorted_key_vals.sorted_intermediate_keyvals_arr = sorted_intermediate_keyvals_arr;
 
 	//ShowLog("GPU_ID:[%d] panda_context current length of shuffled keyval pairs:%d",d_g_state_gpu->gpu_id, d_g_state_panda->sorted_keyvals_arr_len);
