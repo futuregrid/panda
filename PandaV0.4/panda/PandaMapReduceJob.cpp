@@ -1015,9 +1015,9 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
     }//if
 
 	
-	/////////////////////////////////
-	//	Shuffle Stage Start
-	/////////////////////////////////
+	//////////////////////////////////
+	//	Shuffle Stage Start	//
+	//////////////////////////////////
 
 	StartPandaLocalMergeGPUOutput();
 	MPI_Barrier(MPI_COMM_WORLD);
@@ -1025,20 +1025,23 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
 	StartPandaPartitionCheckSends(true);
 	StartPandaExitMessager();
 
-	/////////////////////////////////
-	//	Shuffle Stage Done
-	/////////////////////////////////
+	///////////////////////////////////
+	//	Shuffle Stage Done	//
+	///////////////////////////////////
 
 	StartPandaSortBucket();
 	StartPandaCopyRecvedBucketToGPU();
 
-	
 	if (reducer!=NULL){
+
 		int start_row_id = 0;
 		int end_row_id = this->pNodeContext->sorted_key_vals.sorted_keyvals_arr_len;
 
 		StartPandaAddReduceTask4GPU(start_row_id, end_row_id);
+		StartPandaAddReduceTask4CPU(start_row_id, end_row_id);
+
 		StartPandaGPUReduceTasks();
+		StartPandaCPUReduceTasks();
 
 	}//if
 
