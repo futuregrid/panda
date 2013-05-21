@@ -22,6 +22,8 @@
 #include "UserAPI.cu"
 #include "Global.h"
 
+extern int gCommRank;
+
 //----------------------------------------------
 //Get default job configuration
 //----------------------------------------------
@@ -32,11 +34,11 @@ job_configuration *CreateJobConf(){
 
 	if (job_conf == NULL) exit(-1);
 	memset(job_conf, 0, sizeof(job_configuration));
-	job_conf->num_input_record = 0;
-	job_conf->input_keyval_arr = NULL;
-	job_conf->auto_tuning = false;
+	job_conf->num_input_record	= 0;
+	job_conf->input_keyval_arr	= NULL;
+	job_conf->auto_tuning		= false;
 	job_conf->iterative_support = false;
-	job_conf->local_combiner = false;
+	job_conf->local_combiner    = false;
 	
 	job_conf->num_mappers = 0;
 	job_conf->num_reducers = 0;
@@ -515,6 +517,95 @@ void AddPandaTask(job_configuration* job_conf,
 	job_conf->num_input_record++;
 	
 }
+
+void ExecutePandaSortBucket(panda_node_context *pnc)
+{
+	  int numBucket = pnc->recv_buckets.savedKeysBuff.size();
+	  keyvals_t *sorted_intermediate_keyvals_arr = pnc->sorted_key_vals.sorted_intermediate_keyvals_arr;
+	  char *key_0, *key_1;
+	  int keySize_0, keySize_1;
+	  char *val_0, val_1;
+	  int valSize_0, valSize_1;
+
+	  bool equal;
+	  for(int i=0; i<numBucket; i++){
+			
+		char *keyBuff = pnc->recv_buckets.savedKeysBuff[i];
+		char *valBuff = pnc->recv_buckets.savedValsBuff[i];
+		int *counts = pnc->recv_buckets.counts[i];
+
+		int *keyPosArray  = pnc->recv_buckets.keyPos[i];
+		int *keySizeArray = pnc->recv_buckets.keySize[i];
+		int *valPosArray  = pnc->recv_buckets.valPos[i];
+		int *valSizeArray = pnc->recv_buckets.valSize[i];
+
+		int maxlen		= counts[0];
+		int keyBuffSize	= counts[1];
+		int valBuffSize	= counts[2];
+
+		for (int j=0; j<maxlen; j++){
+			
+			if( keyPosArray[j] + keySizeArray[j] > keyBuffSize ) 
+				ShowError("keyPosArray[j]:%d + keySizeArray[j]:%d > keyBuffSize:%d", keyPosArray[j], keySizeArray[j] , keyBuffSize);
+
+			key_0		= keyBuff + keyPosArray[j];
+			keySize_0	= keySizeArray[j];
+
+			int k = 0;
+			for ( ; k < pnc->sorted_key_vals.sorted_keyvals_arr_len; k++){
+
+				key_1		= (char *)(sorted_intermediate_keyvals_arr[k].key);
+				keySize_1	= sorted_intermediate_keyvals_arr[k].keySize;
+
+				if(cpu_compare(key_0,keySize_0,key_1,keySize_1)!=0)
+					continue;
+
+				val_t *vals = sorted_intermediate_keyvals_arr[k].vals;
+				int index   = sorted_intermediate_keyvals_arr[k].val_arr_len;
+
+				sorted_intermediate_keyvals_arr[k].val_arr_len++;
+				sorted_intermediate_keyvals_arr[k].vals = (val_t*)realloc(vals, sizeof(val_t)*(sorted_intermediate_keyvals_arr[k].val_arr_len));
+				
+				val_0   = valBuff + valPosArray[j];
+				valSize_0 = valSizeArray[j];
+
+				sorted_intermediate_keyvals_arr[k].vals[index].val = (char *)malloc(sizeof(char)*valSize_0);
+				sorted_intermediate_keyvals_arr[k].vals[index].valSize = valSize_0;
+				memcpy(sorted_intermediate_keyvals_arr[k].vals[index].val, val_0, valSize_0);
+				break;
+			}//for k
+
+			if (k == pnc->sorted_key_vals.sorted_keyvals_arr_len){
+
+			if (pnc->sorted_key_vals.sorted_keyvals_arr_len == 0) sorted_intermediate_keyvals_arr = NULL;
+
+			int index = pnc->sorted_key_vals.sorted_keyvals_arr_len;
+			pnc->sorted_key_vals.sorted_keyvals_arr_len++;
+			sorted_intermediate_keyvals_arr = (keyvals_t *)realloc(sorted_intermediate_keyvals_arr, sizeof(keyvals_t)*(pnc->sorted_key_vals.sorted_keyvals_arr_len));
+			
+			keyvals_t* kvals_p = (keyvals_t *)&(sorted_intermediate_keyvals_arr[index]);
+
+			kvals_p->keySize = keySize_0;
+			kvals_p->key = malloc(sizeof(char)*keySize_0);
+			memcpy(kvals_p->key, key_0, keySize_0);
+
+			kvals_p->vals = (val_t *)malloc(sizeof(val_t)*1);
+			kvals_p->val_arr_len = 1;
+
+			if (valPosArray[j] + valSizeArray[j] > valBuffSize) ShowError("valPosArray[j] + valSizeArray[j] > valBuffSize");
+
+			val_0   = valBuff + valPosArray[j];
+			valSize_0 = valSizeArray[j];
+
+			kvals_p->vals[k].valSize = valSize_0;
+			kvals_p->vals[k].val = (char *)malloc(sizeof(char)*valSize_0);
+			memcpy(kvals_p->vals[k].val, val_0, valSize_0);
+
+			}//k
+		}//j
+	  }//i
+	  pnc->sorted_key_vals.sorted_intermediate_keyvals_arr = sorted_intermediate_keyvals_arr;
+}//
  
 
 void AddReduceTask4GPU(panda_gpu_context* pgc, panda_node_context *pnc, int start_row_id, int end_row_id){
@@ -995,7 +1086,7 @@ __device__ void GPUEmitCombinerOutput(void *key, void *val, int keySize, int val
 			map_task_idx, required_mem_len/1024,keySize,valSize,shared_arr_len,shared_buff_pos,shared_buff_len);
 		
 		char *new_buff = (char*)malloc(sizeof(char)*((*kv_arr_p->shared_buff_len)*2));
-		if(new_buff==NULL)ShowError(" There is not enough memory to allocat!");
+		if(new_buff==NULL)ShowWarn(" There is not enough memory to allocat!");
 
 		memcpy(new_buff, shared_buff, sizeof(char)*(*kv_arr_p->shared_buff_pos));
 		memcpy(new_buff + (*kv_arr_p->shared_buff_len)*2 - sizeof(keyval_pos_t)*(*kv_arr_p->shared_arr_len), 
@@ -1052,7 +1143,7 @@ __device__ void GPUEmitCombinerOutput(void *key, void *val, int keySize, int val
 			map_task_idx, required_mem_len/1024,keySize,valSize,shared_arr_len,shared_buff_pos,shared_buff_len);
 		
 		char *new_buff = (char*)malloc(sizeof(char)*((*kv_arr_p->shared_buff_len)*2));
-		if(new_buff==NULL)ShowError(" There is not enough memory to allocat!");
+		if(new_buff==NULL)ShowWarn(" There is not enough memory to allocat!");
 
 		memcpy(new_buff, shared_buff, sizeof(char)*(*kv_arr_p->shared_buff_pos));
 		memcpy(new_buff + (*kv_arr_p->shared_buff_len)*2 - sizeof(keyval_pos_t)*(*kv_arr_p->shared_arr_len), 
@@ -1105,7 +1196,7 @@ __device__ void GPUEmitMapOutput(void *key, void *val, int keySize, int valSize,
 			map_task_idx,*kv_arr_p->shared_arr_len,(*kv_arr_p->shared_buff_len)/1024);
 		
 		char *new_buff = (char*)malloc(sizeof(char)*((*kv_arr_p->shared_buff_len)*2));
-		if(new_buff==NULL){ ShowError("Error ! There is not enough memory to allocat!"); return; }
+		if(new_buff==NULL){ ShowWarn("Error ! There is not enough memory to allocat!"); return; }
 
 		memcpy(new_buff, buff, sizeof(char)*(*kv_arr_p->shared_buff_pos));
 		memcpy(new_buff + (*kv_arr_p->shared_buff_len)*2 - sizeof(keyval_pos_t)*(*kv_arr_p->shared_arr_len), 
@@ -1160,7 +1251,7 @@ __device__ void GPUEmitMapOutput(void *key, void *val, int keySize, int valSize,
 			map_task_idx,*kv_arr_p->shared_arr_len,(*kv_arr_p->shared_buff_len)/1024);
 		
 		char *new_buff = (char*)malloc(sizeof(char)*((*kv_arr_p->shared_buff_len)*2));
-		if(new_buff==NULL){ ShowError("Error ! There is not enough memory to allocat!"); return; }
+		if(new_buff==NULL){ GpuShowError("Error ! There is not enough memory to allocat!"); return; }
 
 		memcpy(new_buff, buff, sizeof(char)*(*kv_arr_p->shared_buff_pos));
 		memcpy(new_buff + (*kv_arr_p->shared_buff_len)*2 - sizeof(keyval_pos_t)*(*kv_arr_p->shared_arr_len), 
@@ -1272,7 +1363,7 @@ __global__ void ExecutePandaGPUMapPartitioner(panda_gpu_context pgc)
 
 	int buddy_arr_len = num_records_per_thread;
 	int * int_arr = (int*)malloc((4+buddy_arr_len)*sizeof(int));
-	if(int_arr==NULL){ ShowError("there is not enough GPU memory\n"); return;}
+	if(int_arr==NULL){ GpuShowError("there is not enough GPU memory\n"); return;}
 
 	int *shared_arr_len = int_arr;
 	int *shared_buff_len = int_arr+1;
@@ -1670,7 +1761,7 @@ __global__ void GPUCombiner(panda_gpu_context pgc)
 
 	int unmerged_shared_arr_len = *kv_arr_p->shared_arr_len;
 	val_t *val_t_arr = (val_t *)malloc(sizeof(val_t)*unmerged_shared_arr_len);
-	if (val_t_arr == NULL) ShowError("there is no enough memory");
+	if (val_t_arr == NULL) GpuShowError("there is no enough memory");
 
 	int num_keyval_pairs_after_combiner = 0;
 	for (int i=0; i<unmerged_shared_arr_len;i++){
@@ -1689,7 +1780,7 @@ __global__ void GPUCombiner(panda_gpu_context pgc)
 		char *iVal = shared_buff + first_kv_p->valPos;
 
 		if((first_kv_p->keyPos%4!=0)||(first_kv_p->valPos%4!=0)){
-			ShowError("keyPos or valPos is not aligned with 4 bytes, results could be wrong");
+			GpuShowError("keyPos or valPos is not aligned with 4 bytes, results could be wrong");
 		}
 
 	
@@ -1764,7 +1855,7 @@ __global__ void GPUCombiner(gpu_context d_g_state)
 
 	int unmerged_shared_arr_len = *kv_arr_p->shared_arr_len;
 	val_t *val_t_arr = (val_t *)malloc(sizeof(val_t)*unmerged_shared_arr_len);
-	if (val_t_arr == NULL) ShowError("there is no enough memory");
+	if (val_t_arr == NULL) GpuShowError("there is no enough memory");
 
 	int num_keyval_pairs_after_combiner = 0;
 	for (int i=0; i<unmerged_shared_arr_len;i++){
@@ -1783,7 +1874,7 @@ __global__ void GPUCombiner(gpu_context d_g_state)
 		char *iVal = shared_buff + first_kv_p->valPos;
 
 		if((first_kv_p->keyPos%4!=0)||(first_kv_p->valPos%4!=0)){
-			ShowError("keyPos or valPos is not aligned with 4 bytes, results could be wrong");
+			GpuShowError("keyPos or valPos is not aligned with 4 bytes, results could be wrong");
 		}
 
 	
@@ -2434,7 +2525,7 @@ __global__ void PandaReducePartitioner(panda_gpu_context pgc)
 			val_t_arr[index-start_idx].valSize = valSize;
 			val_t_arr[index-start_idx].val = (char*)pgc.sorted_key_vals.d_sorted_vals_shared_buff + valPos;
 		}   //for
-		if( end_idx - start_idx == 0) ShowError("gpu_reduce valCount ==0");
+		if( end_idx - start_idx == 0) GpuShowError("gpu_reduce valCount ==0");
 		//else gpu_reduce(key, val_t_arr, keySize, end_idx-start_idx, d_g_state);
 		else panda_gpu_reduce(key, val_t_arr, keySize, end_idx-start_idx, pgc);
 	}//for
@@ -2481,7 +2572,7 @@ __global__ void ReducePartitioner(gpu_context d_g_state)
 			val_t_arr[index-start_idx].val = (char*)d_g_state.d_sorted_vals_shared_buff + valPos;
 		}   //for
 
-		if( end_idx - start_idx == 0) ShowError("gpu_reduce valCount ==0");
+		if( end_idx - start_idx == 0) GpuShowError("gpu_reduce valCount ==0");
 		else gpu_reduce(key, val_t_arr, keySize, end_idx-start_idx, d_g_state);
 
 	}//for
@@ -2557,7 +2648,6 @@ void ExecutePandaGPUReduceTasks(panda_gpu_context *pgc)
 	void *val, *key;
 
 	for (int i = 0; i<pgc->output_key_vals.h_reduced_keyval_arr_len; i++){
-		
 		
 		val = (char *)pgc->output_key_vals.h_ValBuff + val_pos;
 		key = (char *)pgc->output_key_vals.h_KeyBuff + key_pos;

@@ -344,7 +344,7 @@ struct panda_context{
 struct panda_gpu_context
 {	
 
-	struct{
+  struct{
 
   void *d_input_keys_shared_buff;
   void *d_input_vals_shared_buff;
@@ -444,7 +444,7 @@ struct panda_node_context
 			
 	struct{	
 			
-	//data for sorted intermediate results
+	//data for sending out to remote compute node
 	int numBuckets;
 			
 	int * keyBuffSize;
@@ -455,7 +455,20 @@ struct panda_node_context
 	//count[0,1,2,3]  numElements|elementsCapacity|keyPos[elementsCapacity]|valPos[elementsCapacity]
 			
 	}buckets;
-			
+
+	struct{
+
+	//void * keysBuff, * valsBuff;
+	
+	std::vector<char * > savedKeysBuff, savedValsBuff;
+	std::vector<int  * > counts, keyPos, valPos, keySize, valSize;
+	//int keyBuffSize;
+	//int valBuffSize;
+	//int *keyPosKeySizeValPosValSize;
+	//int eleLen;  maxlen, keyBuffSize, valBuffSize
+
+	} recv_buckets;
+	
 	int num_cpus_groups;
 	int num_gpu_core_groups;
 	int num_gpu_card_groups;
@@ -590,6 +603,10 @@ void DoDiskLog(const char *str);
 
 extern "C"
 void DestroyDGlobalState(gpu_context * d_g_state);
+
+extern "C"
+void ExecutePandaSortBucket(panda_node_context *pnc);
+
 
 __device__ void GPUEmitCombinerOutput(void*		key, 
 						void*		val, 
@@ -832,13 +849,19 @@ extern int gCommRank;
 
 
 #ifdef _ERROR
-#define ShowError(...) do{printf("[#Error#][%s]\t\t",__FUNCTION__);printf(__VA_ARGS__);printf("\n");}while(0)
+#define ShowError(...) do{printf("[%d]",gCommRank);printf("[%s]\t",__FUNCTION__);printf(__VA_ARGS__);printf("\n");fflush(stdout);}while(0)
 #else
 #define ShowError(...)
 #endif
 
+#ifdef _ERROR
+#define GpuShowError(...) do{printf("[%s]\t",__FUNCTION__);printf(__VA_ARGS__);printf("\n");}while(0)
+#else
+#define GpuShowError(...)
+#endif
+
 #ifdef _WARN
-#define ShowWarn(...) do{printf("[#WARN#][%s]\t\t",__FUNCTION__);printf(__VA_ARGS__);printf("\n");}while(0)
+#define ShowWarn(...) do{printf("[%s]\t",__FUNCTION__);printf(__VA_ARGS__);printf("\n");}while(0)
 #else
 #define ShowWarn(...) 
 #endif

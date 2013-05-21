@@ -28,29 +28,10 @@ int gCommRank=0;
 
 namespace panda
 {
-	
+
+	//TO remove
   void PandaMapReduceJob::determineMaximumSpaceRequirements()
   {
-
-    const int combinerMem = combiner == NULL ? 0 : combiner->getMemoryRequirementsOnGPU();
-    maxStaticMem = std::max(maxStaticMem, combinerMem);
-
-    for (unsigned int i = 0; i < chunks.size(); ++i)
-    {
-      EmitConfiguration emitConfig = mapper->getEmitConfiguration(chunks[i]);
-      emitConfigs.push_back(emitConfig);
-      const int chunkMem    = chunks[i]->getMemoryRequirementsOnGPU();
-      const int partMem     = partitioner     == NULL ? 0 : partitioner->getMemoryRequirementsOnGPU(emitConfig);
-      const int partialMem  = partialReducer  == NULL ? 0 : partialReducer->getMemoryRequirementsOnGPU(emitConfig);
-      maxStaticMem  = std::max(maxStaticMem,  chunkMem + std::max(partMem, partialMem));
-      maxKeySpace   = std::max(maxKeySpace,  emitConfig.getKeySpace());
-      maxValSpace   = std::max(maxValSpace,  emitConfig.getValueSpace());
-    }//for
-
-    maxStaticMem = std::max(maxStaticMem, 1);
-    maxKeySpace  = std::max(maxKeySpace,  1);
-    maxValSpace  = std::max(maxValSpace,  1);
-			
   }//void
 			
   void PandaMapReduceJob::StartPandaLocalMergeGPUOutput()
@@ -86,6 +67,57 @@ namespace panda
 
 	}// int PandaMapReduceJob
 
+int PandaMapReduceJob::StartPandaCPUMapTasks()
+	{
+		panda_cpu_context *pcc = this->pCPUContext;
+
+		//-------------------------------------------------------
+		//		0, Check status of pcc;
+		//-------------------------------------------------------
+
+		if (pcc->input_key_vals.num_input_record<0)			{ ShowLog("Error: no any input keys");			exit(-1);}
+		if (pcc->input_key_vals.input_keyval_arr == NULL)	{ ShowLog("Error: input_keyval_arr == NULL");	exit(-1);}
+		pcc->num_cpus_cores = 2;
+		int num_cpus_cores = pcc->num_cpus_cores;
+
+		//if (job_conf->num_input_record<=0)		{ ShowError("Error: no any input keys");		exit(-1);	}
+		//if (job_conf->input_keyval_arr == NULL) { ShowError("Error: input_keyval_arr == NULL");	exit(-1);	}
+		
+		if (pcc->num_cpus_cores <= 0)			{ ShowError("Error: pcc->num_cpus == 0");	exit(-1);}
+		int totalKeySize = 0;
+		int totalValSize = 0;
+		for(int i=0; i<pcc->input_key_vals.num_input_record; i++){
+			totalKeySize += pcc->input_key_vals.input_keyval_arr[i].keySize;
+			totalValSize += pcc->input_key_vals.input_keyval_arr[i].valSize;
+		}//for
+
+		//ShowLog("CPU_GROUP_ID:[%d] num_input_record:%d, totalKeySize:%d KB totalValSize:%d KB num_cpus:%d", 
+		//	d_g_state->cpu_group_id, job_conf->num_input_record, totalKeySize/1024, totalValSize/1024, d_g_state->num_cpus_cores);
+
+		pcc->panda_cpu_task = (pthread_t *)malloc(sizeof(pthread_t)*(num_cpus_cores));
+		pcc->panda_cpu_task_info = (panda_cpu_task_info_t *)malloc(sizeof(panda_cpu_task_info_t)*(num_cpus_cores));
+		
+		pcc->intermediate_key_vals.intermediate_keyval_arr_arr_p = (keyval_arr_t **)malloc(sizeof(keyval_arr_t*)*pcc->input_key_vals.num_input_record);
+
+		memset(pcc->intermediate_key_vals.intermediate_keyval_arr_arr_p, 0, sizeof(keyval_arr_t)*pcc->input_key_vals.num_input_record);
+
+		for (int i=0; i < num_cpus_cores; i++){
+			
+			pcc->panda_cpu_task_info[i].pcc = (panda_cpu_context  *)(this->pCPUContext);
+			pcc->panda_cpu_task_info[i].pnc = (panda_node_context *)(this->pNodeContext);
+			pcc->panda_cpu_task_info[i].num_cpus_cores = num_cpus_cores;
+			pcc->panda_cpu_task_info[i].start_row_idx = 0;
+			pcc->panda_cpu_task_info[i].end_row_idx = 0;
+			
+		}//for
+
+		//d_g_state->iterative_support = true;
+		//ShowLog("CPU_GROUP_ID:[%d] DONE",d_g_state->cpu_group_id);
+		return 0;
+	}//int PandaMapReduceJob::StartPandaCPUMapTasks()
+
+
+//void InitGPUCardMapReduce(gpu_card_context* d_g_state)
  int PandaMapReduceJob::StartPandaGPUMapTasks()
 	{		
 
@@ -170,11 +202,76 @@ namespace panda
 	return 0;
 }//int 
 
+
+void PandaMapReduceJob::InitPandaCPUMapReduce()
+{
+
+	this->pCPUContext = CreatePandaCPUContext();
+	this->pCPUContext->input_key_vals.num_input_record = mapTasks.size();
+	this->pCPUContext->input_key_vals.input_keyval_arr = 	(keyval_t *)malloc(mapTasks.size()*sizeof(keyval_t));
+
+	for (unsigned int i= 0;i<mapTasks.size();i++){
+
+		void *key = this->mapTasks[i]->key;
+		int keySize = this->mapTasks[i]->keySize;
+		void *val = this->mapTasks[i]->val;
+		int valSize = this->mapTasks[i]->valSize;
+		this->pCPUContext->input_key_vals.input_keyval_arr[i].key = key;
+		this->pCPUContext->input_key_vals.input_keyval_arr[i].keySize = keySize;
+		this->pCPUContext->input_key_vals.input_keyval_arr[i].val = val;
+		this->pCPUContext->input_key_vals.input_keyval_arr[i].valSize = valSize;
+
+	}//for
+
+	panda_cpu_context* pcc = this->pCPUContext;
+
+	int totalKeySize = 0;
+	int totalValSize = 0;
+	for(int i=0;i<pcc->input_key_vals.num_input_record;i++){
+		totalKeySize += pcc->input_key_vals.input_keyval_arr[i].keySize;
+		totalValSize += pcc->input_key_vals.input_keyval_arr[i].valSize;
+	}//for
+
+	//ShowLog("GPU_ID:[%d] copy %d input records from Host to GPU memory totalKeySize:%d KB totalValSize:%d KB",
+	//	pgc->gpu_id, pgc->num_input_record, totalKeySize/1024, totalValSize/1024);
+	
+	void *input_vals_shared_buff = malloc(totalValSize);
+	void *input_keys_shared_buff = malloc(totalKeySize);
+	
+	keyval_pos_t *input_keyval_pos_arr = 
+		(keyval_pos_t *)malloc(sizeof(keyval_pos_t)*pcc->input_key_vals.num_input_record);
+	
+	int keyPos  = 0;
+	int valPos  = 0;
+	int keySize = 0;
+	int valSize = 0;
+	
+	for(int i=0;i<pcc->input_key_vals.num_input_record;i++){
+		
+		keySize = pcc->input_key_vals.input_keyval_arr[i].keySize;
+		valSize = pcc->input_key_vals.input_keyval_arr[i].valSize;
+		
+		memcpy((char *)input_keys_shared_buff + keyPos,(char *)(pcc->input_key_vals.input_keyval_arr[i].key), keySize);
+		memcpy((char *)input_vals_shared_buff + valPos,(char *)(pcc->input_key_vals.input_keyval_arr[i].val), valSize);
+		
+		input_keyval_pos_arr[i].keySize = keySize;
+		input_keyval_pos_arr[i].keyPos = keyPos;
+		input_keyval_pos_arr[i].valPos = valPos;
+		input_keyval_pos_arr[i].valSize = valSize;
+
+		keyPos += keySize;	
+		valPos += valSize;
+
+	}//for
+
+}//void
+
+
 void PandaMapReduceJob::InitPandaGPUMapReduce()
-{	
+{
 
 	this->pGPUContext = CreatePandaGPUContext();
-	this->pGPUContext->input_key_vals.num_input_record = mapTasks.size();
+	this->pGPUContext->input_key_vals.num_input_record = mapTasks.size();//Ratio
 	this->pGPUContext->input_key_vals.h_input_keyval_arr = 	(keyval_t *)malloc(mapTasks.size()*sizeof(keyval_t));
 
 	for (unsigned int i= 0;i<mapTasks.size();i++){
@@ -256,45 +353,23 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
 		else
 			this->pRuntimeContext = NULL;
 
-		//startMessageThread();
+		//StartPandaMessageThread();
 
 	}//void
 
+  //To be removed
   void PandaMapReduceJob::allocateMapVariables()
   {
- //   gpuKeys       = cudacpp::Runtime::mallocDevice    (numBuffers * maxKeySpace);
- //   gpuVals       = cudacpp::Runtime::mallocDevice	  (numBuffers * maxValSpace);
- //   gpuStaticMems = cudacpp::Runtime::mallocDevice    (numBuffers * maxStaticMem);
- //   cpuKeys       = cudacpp::Runtime::mallocHost(numBuffers * maxKeySpace);
- //   cpuVals       = cudacpp::Runtime::mallocHost(numBuffers * maxValSpace);
-	////commSize
- //   gpuKeyOffsets = (int * )(cudacpp::Runtime::mallocDevice    (numBuffers * commSize * sizeof(int) * 4));
-	////gpuKeyOffsets = (int *)malloc(numBuffers * commSize * sizeof(int) * 4);
- //   gpuValOffsets = gpuKeyOffsets + commSize * 1;
- //   gpuKeyCounts  = gpuKeyOffsets + commSize * 2;
- //   gpuValCounts  = gpuKeyOffsets + commSize * 3;
 
- //   cpuKeyOffsets = (int * )(cudacpp::Runtime::mallocHost(numBuffers * commSize * sizeof(int) * 4));
-	//
-	////cpuKeyOffsets = (int *)malloc(numBuffers * commSize * sizeof(int) * 4);
-	////cpuKeyOffsets[0] = 0;
- //   cpuValOffsets = cpuKeyOffsets + commSize * 1;
- //   cpuKeyCounts  = cpuKeyOffsets + commSize * 2;
- //   cpuValCounts  = cpuKeyOffsets + commSize * 3;
   }
 
+  //To be removed
   void PandaMapReduceJob::freeMapVariables()
   {
-    //cudacpp::Runtime::free    (gpuKeys);
-    //cudacpp::Runtime::free    (gpuVals);
-    //cudacpp::Runtime::free    (gpuStaticMems);
-    //cudacpp::Runtime::freeHost(cpuKeys);
-    //cudacpp::Runtime::freeHost(cpuVals);
-    //cudacpp::Runtime::free    (gpuKeyOffsets);
-    //cudacpp::Runtime::freeHost(cpuKeyOffsets);
+    
   }
 
-  void PandaMapReduceJob::startMessageThread()
+  void PandaMapReduceJob::StartPandaMessageThread()
   {
     MessageThread = new oscpp::Thread(messager);
     MessageThread->start();
@@ -309,6 +384,7 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
     mapper->executeOnGPUAsync(chunks[chunkIndex], config, memPool, kernelStream, memcpyStream);
     if (partialReducer != NULL) partialReducer->executeOnGPUAsync(emitConfigs[chunkIndex], config.keySpace, config.valueSpace, memPool, gpuKeyCounts, gpuKeyOffsets, gpuValCounts, gpuValOffsets, kernelStream);
   }
+
   void PandaMapReduceJob::mapChunkMemcpy(const unsigned int chunkIndex,
                                              const void * const gpuKeySpace,
                                              const void * const gpuValueSpace)
@@ -415,7 +491,7 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
   }//void
 
   //check whether the intermediate task has been send out
-  void PandaMapReduceJob::partitionCheckSends(const bool sync)
+  void PandaMapReduceJob::StartPandaPartitionCheckSends(const bool sync)
   {
     std::vector<oscpp::AsyncIORequest * > newReqs;
     for (unsigned int j = 0; j < sendReqs.size(); ++j)
@@ -436,7 +512,7 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
                                            const int singleKeySize,
                                            const int singleValSize)
   {
-    partitionCheckSends(false);
+    StartPandaPartitionCheckSends(false);
     if (partitioner != NULL)
     {
       partitionSubDoGPU(memPool, keySpace, valueSpace, numKeys, singleKeySize, singleValSize);
@@ -446,7 +522,7 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
       partitionSubDoNullPartitioner(numKeys);
     }//if
     partitionSubSendData(singleKeySize, singleValSize);
-    if (syncPartSends) partitionCheckSends(true);
+    if (syncPartSends) StartPandaPartitionCheckSends(true);
   }//void
 
   void PandaMapReduceJob::partitionChunk(const unsigned int chunkIndex)
@@ -462,47 +538,18 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
                  emitConfigs[chunkIndex].getValueSize());
   }//void
 
+  //To be removed
   void PandaMapReduceJob::saveChunk(const unsigned int chunkIndex)
   {
-    const int numKeys = emitConfigs[chunkIndex].getIndexCount();
-    void * keySpace = reinterpret_cast<char * >(cpuKeys) + (maxKeySpace * chunkIndex) % numBuffers;
-    void * valSpace = reinterpret_cast<char * >(cpuVals) + (maxValSpace * chunkIndex) % numBuffers;
-    void * keysToSave = new char[numKeys * emitConfigs[chunkIndex].getKeySize()];
-    void * valsToSave = new char[numKeys * emitConfigs[chunkIndex].getValueSize()];
-    memcpy(keysToSave, keySpace, numKeys * emitConfigs[chunkIndex].getKeySize());
-    memcpy(valsToSave, valSpace, numKeys * emitConfigs[chunkIndex].getValueSize());
-    savedKeys.push_back(keySpace);
-    savedVals.push_back(valSpace);
-    keyAndValCount.push_back(numKeys);
   }//void
 
   void PandaMapReduceJob::combine()
   {
   }//void
 
+  //To be removed
   void PandaMapReduceJob::globalPartition()
   {
-    const int singleKeySize = emitConfigs[0].getKeySize();
-    const int singleValSize = emitConfigs[0].getValueSize();
-    int numKeys = 0, totalKeySize, totalValSize;
-    for (unsigned int i = 0; i < keyAndValCount.size(); ++i)
-    {
-      numKeys += keyAndValCount[i];
-    }
-    totalKeySize = numKeys * singleKeySize;
-    totalValSize = numKeys * singleValSize;
-    char * gpuFullKeys = reinterpret_cast<char * >(cudacpp::Runtime::mallocDevice(totalKeySize));
-    char * gpuFullVals = reinterpret_cast<char * >(cudacpp::Runtime::mallocDevice(totalValSize));
-
-    int offset = 0;
-    for (unsigned int i = 0; i < keyAndValCount.size(); ++i)
-    {
-      cudacpp::Runtime::memcpyHtoD(gpuFullKeys + offset, savedKeys[i], keyAndValCount[i] * singleKeySize);
-      cudacpp::Runtime::memcpyHtoD(gpuFullVals + offset, savedVals[i], keyAndValCount[i] * singleValSize);
-    }
-    partitionSub(gpuStaticMems, gpuFullKeys, gpuFullVals, numKeys, singleKeySize, singleValSize);
-    cudacpp::Runtime::free(gpuFullKeys);
-    cudacpp::Runtime::free(gpuFullVals);
   }//void
 
   void PandaMapReduceJob::enqueueAllChunks()
@@ -530,16 +577,23 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
     chunks.clear();
   }
 
+  void PandaMapReduceJob::StartPandaExitMessager()
+  {
+    if (messager!=NULL) messager->MsgFinish();
+
+    MessageThread->join();
+    delete MessageThread;
+	ShowLog("MessageThread Join() completed.");
+
+  }//void
+
   void PandaMapReduceJob::collectVariablesFromMessageAndKill()
   {
-
     //if (reducer != NULL)
     messager->MsgFinish();
     MessageThread->join();
     ShowLog("MsgThread Join Complete.");
-
     delete MessageThread;
-    //ShowLog("delete MessageThread");
 
     if (sorter != NULL || reducer != NULL)
     {
@@ -549,81 +603,37 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
         keys = cudacpp::Runtime::mallocHost(keySize);
         vals = cudacpp::Runtime::mallocHost(valSize);
         messager->getFinalData(keys, vals);
-      }
-    }
-  }
+      }//if
+    }//if
+  }//void
+
+  //To be removed
   void PandaMapReduceJob::getReduceRunParameters()
   {
-    maxInputKeySpace = maxInputValSpace = maxInputValOffsetSpace = maxInputNumValsSpace = 0;
-
-    int keysSoFar = 0;
-    while (keysSoFar < numUniqueKeys)
-    {
-      char * tKeys = reinterpret_cast<char * >(keys) + keysSoFar * keySize;
-      int numKeysToProcess;
-      EmitConfiguration emitConfig = reducer->getEmitConfiguration(tKeys, numVals + keysSoFar, numUniqueKeys - keysSoFar, numKeysToProcess);
-      maxKeySpace             = std::max(maxKeySpace,             emitConfig.getKeySpace());
-      maxValSpace             = std::max(maxValSpace,             emitConfig.getValueSpace());
-      maxInputKeySpace        = std::max(maxInputKeySpace,        numKeysToProcess * static_cast<int>(sizeof(int)));
-      maxInputValSpace        = std::max(maxInputValSpace,        (valOffsets[keysSoFar + numKeysToProcess - 1] - valOffsets[keysSoFar] + numVals[keysSoFar + numKeysToProcess - 1]) * static_cast<int>(sizeof(int)));
-      maxInputValOffsetSpace  = std::max(maxInputValOffsetSpace,  numKeysToProcess * static_cast<int>(sizeof(int)));
-      maxInputNumValsSpace    = std::max(maxInputNumValsSpace,    numKeysToProcess * static_cast<int>(sizeof(int)));
-      keysSoFar += numKeysToProcess;
-      emitConfigs.push_back(emitConfig);
-      keyCount.push_back(numKeysToProcess);
-    }
   }
 
+  //To be removed
   PandaGPUConfig & PandaMapReduceJob::getReduceConfig(const int index)
   {
     return configs[index % configs.size()];
   }
 
+  //To be removed
   void PandaMapReduceJob::allocateReduceVariables()
   {
-    gpuKeys             = cudacpp::Runtime::mallocDevice    (numBuffers * maxKeySpace);
-    gpuVals             = cudacpp::Runtime::mallocDevice    (numBuffers * maxValSpace);
-    gpuInputKeys        = cudacpp::Runtime::mallocDevice    (numBuffers * maxInputKeySpace);
-    gpuInputVals        = cudacpp::Runtime::mallocDevice    (numBuffers * maxInputValSpace);
-    gpuInputValOffsets  = reinterpret_cast<int * >(cudacpp::Runtime::mallocDevice(numBuffers * maxInputValOffsetSpace));
-    gpuInputValCounts   = reinterpret_cast<int * >(cudacpp::Runtime::mallocDevice(numBuffers * maxInputNumValsSpace));
-    cpuKeys             = cudacpp::Runtime::mallocHost(numBuffers * maxKeySpace);
-    cpuVals             = cudacpp::Runtime::mallocHost(numBuffers * maxValSpace);
   }
 
+  //To be removed
   void PandaMapReduceJob::freeReduceVariables()
   {
-    if (keys               != NULL) cudacpp::Runtime::freeHost(keys);
-    if (vals               != NULL) cudacpp::Runtime::freeHost(vals);
-    if (gpuKeys            != NULL) cudacpp::Runtime::free    (gpuKeys);
-    if (gpuVals            != NULL) cudacpp::Runtime::free    (gpuVals);
-    if (gpuInputKeys       != NULL) cudacpp::Runtime::free    (gpuInputKeys);
-    if (gpuInputVals       != NULL) cudacpp::Runtime::free    (gpuInputVals);
-    if (gpuInputValOffsets != NULL) cudacpp::Runtime::free    (gpuInputValOffsets);
-    if (gpuInputValCounts  != NULL) cudacpp::Runtime::free    (gpuInputValCounts);
-    if (cpuKeys            != NULL) cudacpp::Runtime::freeHost(cpuKeys);
-    if (cpuVals            != NULL) cudacpp::Runtime::freeHost(cpuVals);
-    if (valOffsets         != NULL) cudacpp::Runtime::freeHost(valOffsets);
-    if (numVals            != NULL) cudacpp::Runtime::freeHost(numVals);
   }
 
+  //To be removed
   void PandaMapReduceJob::copyReduceInput(const int index, const int keysSoFar)
   {
-    const int keyCount = std::min(numUniqueKeys, emitConfigs[index].getIndexCount());
-    const int keyBytesToCopy  = keyCount * sizeof(int);
-    const int valBytesToCopy  = (valOffsets[keysSoFar + keyCount - 1] - valOffsets[keysSoFar] + numVals[keysSoFar + keyCount - 1]) * sizeof(int);
-
-    int numValsToProcess = 0;
-    for (int i = 0; i < keyCount; ++i)
-    {
-      numValsToProcess += numVals[keysSoFar + i];
-    }
-
-    cudacpp::Runtime::memcpyHtoDAsync(gpuInputKeys, reinterpret_cast<int * >(keys) + keysSoFar,             keyBytesToCopy, memcpyStream);
-    cudacpp::Runtime::memcpyHtoDAsync(gpuInputVals, reinterpret_cast<int * >(vals) + valOffsets[keysSoFar], valBytesToCopy, memcpyStream);
-    cudacpp::Runtime::memcpyHtoDAsync(gpuInputValOffsets, valOffsets + keysSoFar, keyCount * sizeof(int), memcpyStream);
-    cudacpp::Runtime::memcpyHtoDAsync(gpuInputValCounts,  numVals    + keysSoFar, keyCount * sizeof(int), memcpyStream);
   }
+
+  //reserve
   void PandaMapReduceJob::executeReduce(const int index)
   {
     reducer->executeOnGPUAsync(keyCount[index],
@@ -635,176 +645,49 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
                                getReduceConfig(index),
                                kernelStream);
   }
+
   void PandaMapReduceJob::copyReduceOutput(const int index, const int keysSoFar)
   {
     cudacpp::Runtime::memcpyDtoHAsync(reinterpret_cast<int * >(cpuKeys) + keysSoFar, getReduceConfig(index).keySpace,   keyCount[index] * sizeof(int), memcpyStream);
     cudacpp::Runtime::memcpyDtoHAsync(reinterpret_cast<int * >(cpuVals) + keysSoFar, getReduceConfig(index).valueSpace, keyCount[index] * sizeof(int), memcpyStream);
   }
+
+  //To be removed
   void PandaMapReduceJob::enqueueReductions()
   {
-    int keysSoFar = 0;
-    for (unsigned int i = 0; i < emitConfigs.size(); ++i)
-    {
-      EmitConfiguration & emitConfig        = emitConfigs[i];
-      getReduceConfig(i).emitInfo.grid.numThreads       = emitConfig.getThreadCount();
-      getReduceConfig(i).emitInfo.grid.emitsPerThread   = emitConfig.getEmitsPerThread();
-		
-      copyReduceInput(i, keysSoFar);
-      cudacpp::Runtime::sync();
-      executeReduce(i);
-      cudacpp::Runtime::sync();
-      copyReduceOutput(i, keysSoFar);
-      cudacpp::Runtime::sync();
-
-      cudacpp::Stream::nullStream->sync();
-
-      keysSoFar += keyCount[i];
-    }
   }
+
   void PandaMapReduceJob::map()
   {
-    emitConfigs.clear();
-    savedKeys.clear();
-    savedVals.clear();
-    keyAndValCount.clear();
-    cudacpp::DeviceProperties * props = cudacpp::DeviceProperties::get(getDeviceNumber());
-    kernelStream = memcpyStream = cudacpp::Stream::nullStream;
-
-    maxStaticMem  = 0;
-    maxKeySpace = 0;
-    maxValSpace = 0;
-
-    // int maxCountSpace = commSize * sizeof(int) * 2;
-    // int maxMem        = props->getTotalMemory() - 10 * 1048576;
-    // const int maxReq  = maxStaticMem + maxKeySpace + maxValSpace + maxCountSpace + commSize * sizeof(int) * 4;
-    numBuffers        = 1; // (accumMap ? 1 : std::min(static_cast<int>(chunks.size()), maxMem / maxReq));
-
-    delete props;
-    props = NULL;
-
-    determineMaximumSpaceRequirements();
-
-    keySize = valSize = 0;
-    keySpace = maxKeySpace;
-    valSpace = maxValSpace;
-
-    allocateMapVariables();
-
-    startMessageThread();
+    StartPandaMessageThread();
     MPI_Barrier(MPI_COMM_WORLD);
-    mapTimer.start();
     enqueueAllChunks();
-
-    mapTimer.stop();
-    mapPostTimer.start();
-    binningTimer.start();
-    partitionCheckSends(true);
+    StartPandaPartitionCheckSends(true);
     collectVariablesFromMessageAndKill();
-    binningTimer.stop();
-
-    mapFreeTimer.start();
     freeMapVariables();
-    mapFreeTimer.stop();
-    mapPostTimer.stop();
   }
+
   void PandaMapReduceJob::sort()
   {
     numUniqueKeys = -1;
     if (sorter->canExecuteOnGPU())  sorter->executeOnGPUAsync(keys, vals, keySize / sizeof(int), numUniqueKeys, &keyOffsets, &valOffsets, &numVals);
     else                            sorter->executeOnCPUAsync(keys, vals, valSize / sizeof(int), numUniqueKeys, &keyOffsets, &valOffsets, &numVals);
   }
+
   void PandaMapReduceJob::reduce()
   {
-    reduceTimer.start();
-
-    emitConfigs.clear();
-    keyCount.clear();
-    configs.clear();
-    cudacpp::DeviceProperties * props = cudacpp::DeviceProperties::get(getDeviceNumber());
 
     kernelStream = memcpyStream = cudacpp::Stream::nullStream;
-
     getReduceRunParameters();
-    // const int maxMem = props->getTotalMemory() - 10 * 1048576;
-    // const int maxReq = maxInputKeySpace + maxInputValSpace + maxKeySpace + maxValSpace;
-    // const int numBuffers  = std::min(static_cast<int>(chunks.size()), maxMem / maxReq);
-    numBuffers = 1;
-    delete props;
-    props = NULL;
-
     allocateReduceVariables();
-
-    configs.resize(numBuffers);
-    for (unsigned int i = 0; i < configs.size(); ++i)
-    {
-      configs[i].keySpace   = reinterpret_cast<char * >(gpuKeys) + maxKeySpace * (i % numBuffers);
-      configs[i].valueSpace = reinterpret_cast<char * >(gpuVals) + maxValSpace * (i % numBuffers);
-    }
-
     enqueueReductions();
-
-    reduceTimer.stop();
-
     cudacpp::Runtime::sync();
-
     freeReduceVariables();
   }
+
+  //To be removed
   void PandaMapReduceJob::collectTimings()
   {
-    /*
-    const char * const descriptions[] =
-    {
-      "map",
-      "bin",
-      "sort",
-      "reduce",
-      "total",
-      // "mapfree",
-      // "mappost",
-      // "fullmap",
-      // "fullreduce",
-      // "fulltime",
-    };
-    */
-    double times[] =
-    {
-      mapTimer.getElapsedSeconds(),
-      binningTimer.getElapsedSeconds(),
-      sortTimer.getElapsedSeconds(),
-      reduceTimer.getElapsedSeconds(),
-      totalTimer.getElapsedSeconds(),
-      // mapFreeTimer.getElapsedSeconds(),
-      // mapPostTimer.getElapsedSeconds(),
-      // fullMapTimer.getElapsedSeconds(),
-      // fullReduceTimer.getElapsedSeconds(),
-      // fullTimer.getElapsedSeconds(),
-    };
-    const int NUM_TIMES = sizeof(times) / sizeof(double);
-    double * allTimes = new double[commSize * NUM_TIMES];
-    MPI_Gather(times, NUM_TIMES, MPI_DOUBLE, allTimes, NUM_TIMES, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-    if (commRank != 0)
-    {
-      delete [] allTimes;
-      return;
-    }
-    for (int i = 0; i < NUM_TIMES; ++i)
-    {
-      double min = times[i], max = times[i];
-      double sum = 0.0f;
-      for (int j = 0; j < commSize; ++j)
-      {
-        const double f = allTimes[j * NUM_TIMES + i];
-        sum += f;
-        min = std::min(min, f);
-        max = std::max(max, f);
-      }
-      // printf("%-6s %10.3f %10.3f %10.3f\n", descriptions[i], min, max, sum / static_cast<double>(commSize));
-      // printf(" %s=%5.3f", descriptions[i], sum / static_cast<double>(commSize));
-      printf(" %5.3f", sum / static_cast<double>(commSize));
-    }
-    printf("\n");
-    fflush(stdout);
-    delete [] allTimes;
   }
 
   PandaMapReduceJob::PandaMapReduceJob(int & argc,
@@ -823,24 +706,20 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
   {
   }//PandaMapReduceJob
 
+  //Significant change is required in this place
   void PandaMapReduceJob::addInput(Chunk * chunk)
   {
     chunks.push_back(chunk);
 	addMapTasks(chunk);
   }//void
 
+  //To be removed
   void PandaMapReduceJob::addMapTasks(panda::Chunk *chunk)
   {
-	  //chunks.push_back(chunk);
-	  void *key = chunk->getKey();
-	  int keySize = chunk->getKeySize();
-	  void *val = chunk->getVal();
-	  int valSize = chunk->getValSize();
-
-	  MapTask *pMapTask = new MapTask(keySize,key,valSize,val);
-	  mapTasks.push_back(pMapTask);
-
+	  //MapTask *pMapTask = new MapTask(keySize,key,valSize,val);
+	  //mapTasks.push_back(pMapTask);
   }//void
+
 
   void PandaMapReduceJob::StartPandaGPUCombiner()
   {
@@ -848,72 +727,22 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
   }//void 
 			
   void PandaMapReduceJob::StartPandaSortBucket()
-  {			
-
+  {
 	  ExecutePandaSortBucket(this->pNodeContext);
-
-	  
-	}//for
+  }//for
 
   void PandaMapReduceJob::StartPandaCopyRecvedBucketToGPU()
   {
-	  int numEle = this->pNodeContext->recv_buckets.savedKeysBuff.size();
-	  keyvals_t * sorted_intermediate_keyvals_arr = (keyvals_t*)malloc(numEle*sizeof(keyvals_t));
-	  
-	  for (int i=0;i<numEle;i++){
-		  
-		  keyvals_t *pkvt = &(sorted_intermediate_keyvals_arr[i]);
-		  
-		  int *keyPos  = this->pNodeContext->recv_buckets.keyPos[i];
-		  int *keySize = this->pNodeContext->recv_buckets.keySize[i];
-		  int *valPos  = this->pNodeContext->recv_buckets.valPos[i];
-		  int *valSize = this->pNodeContext->recv_buckets.valSize[i];
-		  
-		  char *keyBuff = this->pNodeContext->recv_buckets.savedKeysBuff[i];
-		  char *valBuff = this->pNodeContext->recv_buckets.savedValsBuff[i];
-			
-		  int *counts = this->pNodeContext->recv_buckets.counts[i];
-		  int numPairs = counts[0];
-		  int keyBuffSize = counts[1];
-		  int valBuffSize = counts[2];
-
-		  ShowLog("numPairs:%d keyBuffSize:%d valBuffSize:%d keyPos[0]:%d keySize[0]:%d valPos[0]:%d valSize:[0]:%d",
-			  numPairs, keyBuffSize, valBuffSize, keyPos[0], keySize[0], valPos[0], valSize[0]);
-			
-		  for (int j=0;j<numPairs;j++)
-		  {	 
-			  if(keyPos[j]+keySize[j]>keyBuffSize) ShowError("keyPos over access keyBuff");
-			  if(valPos[j]+valSize[j]>valBuffSize) ShowError("valPos over access valBuff");
-
-			  pkvt->keySize = keySize[j];
-			  pkvt->key	= new char[keySize[j]];
-			  memcpy(pkvt->key,keyBuff+keyPos[j],keySize[j]);
-
-			  pkvt->val_arr_len = 1;
-			  pkvt->vals = (val_t*)malloc(sizeof(val_t)*pkvt->val_arr_len);
-			  printf("valSize:%d\n",valSize[j]);
-											
-			  pkvt->vals[0].valSize = valSize[j];
-			  pkvt->vals[0].val		= malloc(valSize[j]);
-
-			  memcpy(pkvt->vals[0].val,valBuff+valPos[j], valSize[j]);
-			
-		  }	//for
-			
-	  }//for
-
-	  //TODO free previous sorted_intermediate_keyvals_arr?
-	  this->pNodeContext->sorted_key_vals.sorted_intermediate_keyvals_arr = sorted_intermediate_keyvals_arr;
-	  this->pNodeContext->sorted_key_vals.sorted_keyvals_arr_len = numEle;
-	  //end_row_id = numEle; < numEle
-	  //AddReduceTask4GPU(this->pGPUContext,this->pNodeContext,0,numEle);
-
+ 	  int end_row_id = this->pNodeContext->sorted_key_vals.sorted_keyvals_arr_len;
+	  ShowLog("sorted_keyvals_arr_len:%d",end_row_id);
+	  AddReduceTask4GPU(this->pGPUContext,this->pNodeContext, 0, end_row_id);
   }//void
 
   void PandaMapReduceJob::StartPandaAddReduceTask4GPU(int start_row_id, int end_row_id)
   {
 	  AddReduceTask4GPU(this->pGPUContext,this->pNodeContext,start_row_id,end_row_id);
   }//void
+
 
   int PandaMapReduceJob::GetHash(const char* Key, int KeySize, int commSize)
   {  
@@ -929,7 +758,7 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
         return (int) ((int)h % commSize);
   }//int
 
-  void PandaMapReduceJob::AddKeyValue2Bucket(int bucketId, const char*key, int keySize, const char*val, int valSize)
+  void PandaMapReduceJob::PandaAddKeyValue2Bucket(int bucketId, const char*key, int keySize, const char*val, int valSize)
   {
 
 	  char * keyBuff = (char *)(this->pNodeContext->buckets.savedKeysBuff.at(bucketId));
@@ -937,14 +766,12 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
 
 	  int keyBuffSize = this->pNodeContext->buckets.keyBuffSize[bucketId];
 	  int valBuffSize = this->pNodeContext->buckets.valBuffSize[bucketId];
-
 	  int *counts = this->pNodeContext->buckets.counts[bucketId];
 	  
 	  int curlen	 = counts[0];
 	  int maxlen	 = counts[1];
-
-  //printf("bucketId:%d  0:%d 1:%d,2:%d,3:%d  curlen:%d  maxlen:%d\n",bucketId,counts[0],counts[1],counts[2],counts[3],curlen,maxlen);
-  //printf("keyPos.size:%d\n",this->pNodeContext->buckets.keyPos.size());
+	  //printf("bucketId:%d  0:%d 1:%d,2:%d,3:%d  curlen:%d  maxlen:%d\n",bucketId,counts[0],counts[1],counts[2],counts[3],curlen,maxlen);
+	  //printf("keyPos.size:%d\n",this->pNodeContext->buckets.keyPos.size());
 
 	  int keyBufflen = counts[2];
 	  int valBufflen = counts[3];
@@ -955,7 +782,6 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
 	  int *valSizeArray = this->pNodeContext->buckets.valSize[bucketId];
 
 	  if (keyBufflen + keySize >= keyBuffSize){
-
 			char *newKeyBuff = (char*)malloc(2*keyBuffSize);
 			//char *)(realloc(keyBuff, 2*keyBuffSize*sizeof(char)));
 			memcpy(newKeyBuff, keyBuff, keyBufflen);
@@ -965,41 +791,33 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
 			this->pNodeContext->buckets.keyBuffSize[bucketId]   = 2*keyBuffSize;
 			//TODO remove keyBuff in std::vector
 			//delete [] keyBuff
-
 	  }else{
 			memcpy(keyBuff + keyBufflen, key, keySize);
 			counts[2] = keyBufflen+keySize;
 	  }//else
 	  
 	  if (valBufflen + valSize >= valBuffSize){
-			
 		    char *newValBuff = (char*)malloc(2*valBuffSize);
 			memcpy(newValBuff, valBuff, valBufflen);
 			memcpy(newValBuff + valBufflen, val, valSize);
-			
 			counts[3] = valBufflen+valSize;
 			this->pNodeContext->buckets.savedValsBuff[bucketId] = newValBuff;
 			this->pNodeContext->buckets.valBuffSize[bucketId]	= 2*valBuffSize;
-
 			//TODO remove valBuff in std::vector
 			//delete [] valBuff;
-
 	  }else{
-
 			memcpy(valBuff + valBufflen, val, valSize);	//
 			counts[3] = valBufflen+valSize;				//
-
 	  }//else
 
 	  keyPosArray[curlen]  = keyBufflen;
-          valPosArray[curlen]  = valBufflen;
+      valPosArray[curlen]  = valBufflen;
 	  keySizeArray[curlen] = keySize;
 	  valSizeArray[curlen] = valSize;
 
 	  (counts[0])++;//increase one keyVal pair
 	  if(counts[0] >= counts[1]){
 		 
-		 //printf("coutns[0]:%d counts[1]:%d\n",counts[0],counts[1]);
 		 counts[1] *= 2;
 		 int * newKeyPosArray = (int *)malloc(sizeof(int)*counts[1]);
 		 int * newValPosArray = (int *)malloc(sizeof(int)*counts[1]);
@@ -1074,10 +892,10 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
 		val_t *vals  = sorted_intermediate_keyvals_arr1[i].vals;
 		int len = sorted_intermediate_keyvals_arr1[i].val_arr_len;
 		for (int j=0;j<len;j++){
-			AddKeyValue2Bucket(bucketId, (char *)key, keySize,(char *)(vals[j].val),vals[j].valSize);
+			PandaAddKeyValue2Bucket(bucketId, (char *)key, keySize,(char *)(vals[j].val),vals[j].valSize);
 		}//for
 	  }//for
-	  //ShowLog("AddKeyValue2Bucket Done\n");
+	  //ShowLog("PandaAddKeyValue2Bucket Done\n");
 
   }//void
 
@@ -1157,46 +975,24 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
   void PandaMapReduceJob::execute()
   {
 
-    mapTimer.start();
-    binningTimer.start();
-    sortTimer.start();
-    reduceTimer.start();
-    totalTimer.start();
-
-    mapTimer.stop();
-    binningTimer.stop();
-    sortTimer.stop();
-    reduceTimer.stop();
-    totalTimer.stop();
-
-    fullTimer.start();
-    fullMapTimer.start();
-
     if (mapper != NULL)
     {
 
       if (messager        != NULL) messager->MsgInit();
-      if (partitioner     != NULL) partitioner->init();
-      if (partialReducer  != NULL) partialReducer->init();
       if (combiner        != NULL) combiner->init();
 
-      mapper->init();
-      MPI_Barrier(MPI_COMM_WORLD);
-      totalTimer.start();
-
-      //map();
-	  //Panda Process
-	  startMessageThread();
+	  StartPandaMessageThread();
 	  MPI_Barrier(MPI_COMM_WORLD);
 
 	  InitPandaRuntime();
-	  if (messager        != NULL) {
-		  messager->setPnc(this->pNodeContext);
-	  }//if
-
+	  if (messager    != NULL) messager->setPnc(this->pNodeContext);
+	  
 	  InitPandaGPUMapReduce();
+	  InitPandaCPUMapReduce();
+
 	  StartPandaGPUMapTasks();
-	  //if(d_g_state->local_combiner){
+	  StartPandaCPUMapTasks();
+	  
 	  StartPandaGPUCombiner();
 
       //mapper->finalize();
@@ -1207,9 +1003,8 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
 
     }//if
 
-    fullMapTimer.stop();
 	double t3 = PandaTimer();
-    sortTimer.start();
+
     if (sorter != NULL)
     {
       //Sorter->init();
@@ -1218,54 +1013,43 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
 	  //Panda Code
 	  StartPandaSortGPUResults();
     }//if
-    sortTimer.stop();
 
-
-	ShowLog("before StartPandaLocalMergeGPUOutput");	
+	
+	/////////////////////////////////
+	//	Shuffle Stage Start
+	/////////////////////////////////
 
 	StartPandaLocalMergeGPUOutput();
-
-	//TODO
-	//	StartPandaSortCPU();
-	
 	MPI_Barrier(MPI_COMM_WORLD);
-
 	StartPandaGlobalPartition();
-	partitionCheckSends(true);
-	
-    collectVariablesFromMessageAndKill();
-	//Job Scheduler Plan
-	ShowLog("Temple ending the computation (Reduce) #Tasks:%d\n",this->pNodeContext->recv_buckets.savedKeysBuff.size());
+	StartPandaPartitionCheckSends(true);
+	StartPandaExitMessager();
+
+	/////////////////////////////////
+	//	Shuffle Stage Done
+	/////////////////////////////////
+
 	StartPandaSortBucket();
 	StartPandaCopyRecvedBucketToGPU();
 
-	int start_row_id = 0;
-	int end_row_id = this->pNodeContext->sorted_key_vals.sorted_keyvals_arr_len;
-
-	//TODO disabled due to Task4GPU
-	//StartPandaAddReduceTask4GPU(0, 1);
-
+	
 	if (reducer!=NULL){
+		int start_row_id = 0;
+		int end_row_id = this->pNodeContext->sorted_key_vals.sorted_keyvals_arr_len;
+
 		StartPandaAddReduceTask4GPU(start_row_id, end_row_id);
 		StartPandaGPUReduceTasks();
+
 	}//if
 
-    //fullReduceTimer.start();
-
-	/*
-    if (reducer != NULL && numUniqueKeys > 0)
+	/* if (reducer != NULL && numUniqueKeys > 0)
     {
       reducer->init();
       reduce();
       totalTimer.stop();
       reducer->finalize();
-    }
-	*/
-
-    //fullReduceTimer.stop();
-    //fullTimer.stop();
-
-    //collectTimings();
+    } */
     MPI_Barrier(MPI_COMM_WORLD);
+
   }
 }

@@ -99,6 +99,8 @@ namespace panda
 		virtual oscpp::AsyncIORequest * MsgFinish();
 		virtual void setPnc(panda_node_context *pnc);
 		
+		virtual void PandaAddRecvedBucket(char *keyRecv, char *valRecv, int *keyPosKeySizeValPosValSize, int keyBuffSize, int valBuffSize, int maxLen);
+
 		virtual void getFinalDataSize(int & keySize, int & valSize) const;
 		virtual void getFinalDataSize(int & keySize, int & valSize, int & numKeys, int & numVals) const;
 		virtual void getFinalData(void * keyStorage, void * valStorage) const;

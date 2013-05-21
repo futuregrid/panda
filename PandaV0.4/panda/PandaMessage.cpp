@@ -414,8 +414,8 @@ namespace panda
 
         if (flag)
         {
-          //data have been received, add the data to reduce task 
-		  PandaAddRecvedBucket((char *)keyRecv[i], (char *)valRecv[i], keyPosKeySizeValPosValSize[i], counts[i * 3 + 1], counts[i * 3 + 2], counts[i * 3 + 2]);
+          //data have been received, add the data to reduce task																		    //maxlen
+		  PandaAddRecvedBucket((char *)keyRecv[i], (char *)valRecv[i], keyPosKeySizeValPosValSize[i], counts[i * 3 + 1], counts[i * 3 + 2], counts[i * 3 + 0]);
 
           recvingCount[i] = true;
 		  //the last signal zeroCount

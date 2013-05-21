@@ -46,7 +46,7 @@ namespace panda
       std::vector<EmitConfiguration> emitConfigs;
 	  
 	  panda_gpu_context *pGPUContext;
-	  //panda_cpu_context *pCPUContext;
+	  panda_cpu_context *pCPUContext;
 	  panda_node_context *pNodeContext;
 	  panda_runtime_context *pRuntimeContext;
 
@@ -80,7 +80,7 @@ namespace panda
       virtual void determineMaximumSpaceRequirements();
       virtual void allocateMapVariables();
       virtual void freeMapVariables();
-      virtual void startMessageThread();
+      virtual void StartPandaMessageThread();
       virtual void mapChunkExecute(const unsigned int chunkIndex,
                                    PandaGPUConfig & config,
                                    void * const memPool);
@@ -99,7 +99,7 @@ namespace panda
                                      const int singleValSize);
       virtual void partitionSubDoNullPartitioner(const int numKeys);
       virtual void partitionSubSendData(const int singleKeySize, const int singleValSize);
-      virtual void partitionCheckSends(const bool sync);
+      virtual void StartPandaPartitionCheckSends(const bool sync);
 
       virtual void partitionSub(void * const memPool,
                                 void * const keySpace,
@@ -134,14 +134,18 @@ namespace panda
 
 	  virtual void StartPandaAddReduceTask4GPU(int start_row_id, int end_row_id);
 	  virtual int  StartPandaGPUMapTasks();
+	  virtual int  StartPandaCPUMapTasks();
 	  virtual int  StartPandaGPUReduceTasks();
 	  virtual void PandaPartitionCheckSends(const bool sync);
 	  virtual void StartPandaPartitionSubSendData();
 	  virtual void StartPandaCopyRecvedBucketToGPU();
+	  virtual void StartPandaExitMessager();
+	  virtual void InitPandaCPUMapReduce();
+	  
 
 	  //virtual void StartPandaRuntimeMerge();
-	  virtual int GetHash(const char* Key, int KeySize, int commRank );
-	  virtual void AddKeyValue2Bucket(int bucketId, const char*key, int keySize, const char*val, int valSize);
+	  virtual int  GetHash(const char* Key, int KeySize, int commRank );
+	  virtual void PandaAddKeyValue2Bucket(int bucketId, const char*key, int keySize, const char*val, int valSize);
 
       virtual void map();
       virtual void sort();
