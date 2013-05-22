@@ -955,7 +955,9 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
 	  if(valSizeArray==NULL) ShowLog("Error");
 	  if(keyPosArray==NULL)  ShowLog("Error");
 	  if(valPosArray==NULL)  ShowLog("Error");
- 
+
+	  //store keyPos keySize valPos valSize in a int array.  
+	  
 	  for (int i=0; i<curlen; i++){
 		keyPosKeySizeValPosValSize[i] = keyPosArray[i];
 	  }//for
