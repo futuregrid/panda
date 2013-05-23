@@ -126,7 +126,7 @@ void ExecutePandaSortBucket(panda_node_context *pnc)
 
 				val_t *vals = sorted_intermediate_keyvals_arr[k].vals;
 				int index   = sorted_intermediate_keyvals_arr[k].val_arr_len;
-
+				
 				sorted_intermediate_keyvals_arr[k].val_arr_len++;
 				sorted_intermediate_keyvals_arr[k].vals = (val_t*)realloc(vals, sizeof(val_t)*(sorted_intermediate_keyvals_arr[k].val_arr_len));
 				
@@ -169,8 +169,31 @@ void ExecutePandaSortBucket(panda_node_context *pnc)
 		}//j
 	  }//i
 	  pnc->sorted_key_vals.sorted_intermediate_keyvals_arr = sorted_intermediate_keyvals_arr;
-}//
- 
+}//			
+			
+void AddReduceTask4CPU(panda_cpu_context* pcc, panda_node_context *pnc, int start_row_id, int end_row_id){
+		
+    if (end_row_id <= start_row_id){	ShowError("error! end_row_id<=start_row_id");		return;	}
+	int len = pnc->sorted_key_vals.sorted_keyvals_arr_len;
+	if (len < 0) {	ShowError("error! len<0");		return;	}
+	if (len == 0) pcc->sorted_key_vals.sorted_intermediate_keyvals_arr = NULL;
+	//realloc()//TODO
+	pcc->sorted_key_vals.sorted_intermediate_keyvals_arr = (keyvals_t *)malloc(sizeof(keyvals_t)*(len + end_row_id - start_row_id));
+	pcc->sorted_key_vals.totalKeySize = pnc->sorted_key_vals.totalKeySize;
+	pcc->sorted_key_vals.totalValSize = pnc->sorted_key_vals.totalValSize;
+	
+	for (int i = len; i< len + end_row_id - start_row_id; i++){
+		
+		pcc->sorted_key_vals.sorted_intermediate_keyvals_arr[i].keySize = pnc->sorted_key_vals.sorted_intermediate_keyvals_arr[start_row_id+i-len].keySize;
+		pcc->sorted_key_vals.sorted_intermediate_keyvals_arr[i].key = pnc->sorted_key_vals.sorted_intermediate_keyvals_arr[start_row_id+i-len].key;
+		pcc->sorted_key_vals.sorted_intermediate_keyvals_arr[i].vals = pnc->sorted_key_vals.sorted_intermediate_keyvals_arr[start_row_id+i-len].vals;
+		pcc->sorted_key_vals.sorted_intermediate_keyvals_arr[i].val_arr_len = pnc->sorted_key_vals.sorted_intermediate_keyvals_arr[start_row_id+i-len].val_arr_len;
+		
+	}//for
+	pcc->sorted_key_vals.sorted_keyvals_arr_len = len + end_row_id-start_row_id;
+		
+}//void AddReduceTask4CPU
+
 void AddReduceTask4GPU(panda_gpu_context* pgc, panda_node_context *pnc, int start_row_id, int end_row_id){
 
 	keyvals_t * sorted_intermediate_keyvals_arr = pnc->sorted_key_vals.sorted_intermediate_keyvals_arr;
@@ -591,12 +614,149 @@ void ExecutePandaGPUCombiner(panda_gpu_context * pgc){
 	//ShowLog("GPU_ID:[%d] GPUCombiner take:%f sec",state->gpu_id, t2-t1);
 }
 
+void ExecutePandaCPUCombiner(panda_cpu_context *pcc){
+	
+	if (pcc->intermediate_key_vals.intermediate_keyval_arr_arr_p == NULL)	{ ShowError("intermediate_keyval_arr_arr_p == NULL"); exit(-1); }
+	if (pcc->intermediate_key_vals.intermediate_keyval_arr_arr_len <= 0)	{ ShowError("no any input keys"); exit(-1); }
+	if (pcc->num_cpus_cores <= 0) { ShowError("pcc->num_cpus == 0"); exit(-1); }
+
+	//-------------------------------------------------------
+	//1, prepare buffer to store intermediate results
+	//-------------------------------------------------------
+	keyval_arr_t *d_keyval_arr_p;
+	int *count = NULL;
+
+	int num_threads = pcc->num_cpus_cores;
+	int num_records_per_thread = (pcc->input_key_vals.num_input_record + num_threads - 1)/(num_threads);
+	int start_row_idx = 0;
+	int end_row_idx = 0;
+
+	for (int tid = 0;tid<num_threads;tid++){
+		end_row_idx = start_row_idx + num_records_per_thread;
+		if (tid < (pcc->input_key_vals.num_input_record % num_threads) )
+			end_row_idx++;
+		if (end_row_idx > pcc->input_key_vals.num_input_record)
+			end_row_idx = pcc->input_key_vals.num_input_record;
+
+		pcc->panda_cpu_task_thread_info[tid].start_row_idx	= start_row_idx;
+		pcc->panda_cpu_task_thread_info[tid].end_row_idx	= end_row_idx;
+		
+		//if(end_row_idx > start_row_idx)
+		if (pthread_create(&(pcc->panda_cpu_task_thread[tid]),NULL,RunPandaCPUCombinerThread,(char *)&(pcc->panda_cpu_task_thread_info[tid]))!=0) 
+			ShowError("Thread creation failed!");
+		start_row_idx = end_row_idx;
+	}//for
+
+	for (int tid = 0; tid<num_threads; tid++){
+		void *exitstat;
+		if (pthread_join(pcc->panda_cpu_task_thread[tid],&exitstat)!=0) ShowError("joining failed");
+	}//for
+
+}//void
+
+void *RunPandaCPUCombinerThread(void *ptr){
+
+	panda_cpu_task_info_t *panda_cpu_task_info = (panda_cpu_task_info_t *)ptr;
+	panda_cpu_context *pcc	= (panda_cpu_task_info->pcc); 
+	panda_node_context *pnc = (panda_cpu_task_info->pnc); 
+
+	int index = 0;
+	keyvals_t * merged_keyvals_arr = NULL;
+	int merged_key_arr_len = 0;
+
+	int start_idx = panda_cpu_task_info->start_row_idx;
+	int end_idx = panda_cpu_task_info->end_row_idx;
+	if(start_idx>=end_idx)
+		return NULL;
+
+	keyval_arr_t *kv_arr_p	= (keyval_arr_t *)&(pcc->intermediate_key_vals.intermediate_keyval_arr_arr_p[start_idx]);
+
+	int unmerged_shared_arr_len = *kv_arr_p->shared_arr_len;
+    int *shared_buddy			= kv_arr_p->shared_buddy;
+    int shared_buddy_len		= kv_arr_p->shared_buddy_len;
+	//ShowLog("hi1");
+    char *shared_buff = kv_arr_p->shared_buff;
+    int shared_buff_len = *kv_arr_p->shared_buff_len;
+    int shared_buff_pos = *kv_arr_p->shared_buff_pos;
+
+	val_t *val_t_arr = (val_t *)malloc(sizeof(val_t)*unmerged_shared_arr_len);
+	if (val_t_arr == NULL) ShowError("there is no enough memory");
+	int num_keyval_pairs_after_combiner = 0;
+	int total_intermediate_keyvalue_pairs = 0;
+
+	//ShowLog("hi2");
+	for (int i = 0; i < unmerged_shared_arr_len; i++){
+
+		keyval_pos_t *head_kv_p = (keyval_pos_t *)(shared_buff + shared_buff_len - sizeof(keyval_pos_t)*(unmerged_shared_arr_len-i));
+		keyval_pos_t *first_kv_p = head_kv_p;
+
+		if (first_kv_p->next_idx != _MAP)
+			continue;
+		//ShowLog("hi3");
+
+		int iKeySize	= first_kv_p->keySize;
+		char *iKey		= shared_buff + first_kv_p->keyPos;
+		char *iVal		= shared_buff + first_kv_p->valPos;
+
+		if((first_kv_p->keyPos%4!=0)||(first_kv_p->valPos%4!=0)){
+			ShowError("keyPos or valPos is not aligned with 4 bytes, results could be wrong");
+		}//
+	
+		int index = 0;
+		first_kv_p = head_kv_p;
+
+		(val_t_arr[index]).valSize = first_kv_p->valSize;
+		(val_t_arr[index]).val = (char*)shared_buff + first_kv_p->valPos;
+
+		//ShowLog("hi i:%d",i);
+		for (int j=i+1;j<unmerged_shared_arr_len;j++){
+
+			keyval_pos_t *next_kv_p = (keyval_pos_t *)((char *)shared_buff + shared_buff_len - sizeof(keyval_pos_t)*(unmerged_shared_arr_len-j));
+			char *jKey = (char *)shared_buff+next_kv_p->keyPos;
+			int jKeySize = next_kv_p->keySize;
+		
+			if (cpu_compare(iKey,iKeySize,jKey,jKeySize)!=0){
+				continue;
+			}
+
+			index++;
+			first_kv_p->next_idx = j;
+			first_kv_p = next_kv_p;
+			(val_t_arr[index]).valSize = next_kv_p->valSize;
+			(val_t_arr[index]).val = (char*)shared_buff + next_kv_p->valPos;
+
+		}
+
+		int valCount = index+1;
+		total_intermediate_keyvalue_pairs += valCount;
+		if(valCount>1)
+			panda_cpu_combiner(iKey, val_t_arr, iKeySize, (valCount), pcc, start_idx);
+		else{
+			first_kv_p->next_idx = _COMBINE;
+			first_kv_p->task_idx = start_idx;
+		}
+		num_keyval_pairs_after_combiner++;
+	}//for
+	free(val_t_arr);
+	pcc->intermediate_key_vals.intermediate_keyval_total_count[start_idx] = num_keyval_pairs_after_combiner;
+
+	/*ShowLog("CPU_GROUP_ID:[%d] Map_Idx:%d  Done:%d Combiner: %d => %d Compress Ratio:%f",
+		d_g_state->cpu_group_id, 
+		panda_cpu_task_info->start_row_idx,
+		panda_cpu_task_info->end_row_idx - panda_cpu_task_info->start_row_idx, 
+		total_intermediate_keyvalue_pairs,
+		num_keyval_pairs_after_combiner,
+		(num_keyval_pairs_after_combiner/(float)total_intermediate_keyvalue_pairs)
+		);*/
+	return NULL;
+}
+
 
 
 void StartGPUShuffle(panda_gpu_context * pgc){
 	
 	double t1 = PandaTimer();
-	ExecutePandaGPUShuffle(pgc);
+	ExecutePandaGPUSort(pgc);
 	double t2 = PandaTimer();
 	//ShowLog("GPU_ID:[%d] GPUShuffle take %f sec", state->gpu_id,t2-t1);
 	
@@ -735,21 +895,24 @@ void ExecutePandaGPUReduceTasks(panda_gpu_context *pgc)
 	}//for
 
 	//ShowLog("Output: Size:%d keySize:%d",pgc->reduced_key_vals.d_reduced_keyval_arr_len,pgc->reduced_key_vals.h_reduced_keyval_arr[0].keySize);
-	cudaThreadSynchronize(); 
+
+	//TODO
+	//cudaThreadSynchronize(); 
 
 }//void
 
+	
+void* ExecutePandaCPUMapThread(void * ptr)
+{
 
-	
-int ExecutePandaCPUMapThread(thread_info_t* ptr)
-{		
-	
 	panda_cpu_task_info_t *panda_cpu_task_info = (panda_cpu_task_info_t *)ptr;
 	panda_cpu_context  *pcc = (panda_cpu_context *) (panda_cpu_task_info->pcc);
 	panda_node_context *pnc = (panda_node_context *)(panda_cpu_task_info->pnc);
 	
 	int start_row_idx	=	panda_cpu_task_info->start_row_idx;
 	int end_row_idx		=	panda_cpu_task_info->end_row_idx;
+
+	if(end_row_idx<=start_row_idx) 	return NULL;
 	
 	char *buff		=	(char *)malloc(sizeof(char)*CPU_SHARED_BUFF_SIZE);
 	int *int_arr	=	(int *)malloc(sizeof(int)*(end_row_idx - start_row_idx + 3));
@@ -784,7 +947,7 @@ int ExecutePandaCPUMapThread(thread_info_t* ptr)
 	}//for
 	
 	//ShowLog("CPU_GROUP_ID:[%d] Done :%d tasks",d_g_state->cpu_group_id, panda_cpu_task_info->end_row_idx - panda_cpu_task_info->start_row_idx);
-	return 0;
+	return NULL;
 }//int 
 
 

@@ -14,8 +14,9 @@
 #include <panda/EmitConfiguration.h>
 
 #include <cudacpp/DeviceProperties.h>
-#include <cudacpp/Event.h>
 #include <cudacpp/Runtime.h>
+#include <cudacpp/Event.h>
+
 
 #include "Panda.h"
 
@@ -41,7 +42,12 @@ namespace panda
 
   void PandaMapReduceJob::StartPandaSortGPUResults()
   {
-	  ExecutePandaGPUShuffle(this->pGPUContext);
+	  ExecutePandaGPUSort(this->pGPUContext);
+  }//int
+
+  void PandaMapReduceJob::StartPandaSortCPUResults()
+  {
+	  ExecutePandaCPUSort(this->pCPUContext, this->pNodeContext);
   }//int
 
  int PandaMapReduceJob::StartPandaGPUReduceTasks()
@@ -72,15 +78,11 @@ namespace panda
 		panda_cpu_context *pcc = this->pCPUContext;
 		panda_node_context *pnc = this->pNodeContext;
 
-		//-------------------------------------------------------
-		//		0, Check status of pcc;
-		//-------------------------------------------------------
-
-		if (pcc->input_key_vals.num_input_record<0)			{ ShowLog("Error: no any input keys");			exit(-1);}
+		if (pcc->input_key_vals.num_input_record < 0)		{ ShowLog("Error: no any input keys");			exit(-1);}
 		if (pcc->input_key_vals.input_keyval_arr == NULL)	{ ShowLog("Error: input_keyval_arr == NULL");	exit(-1);}
 		if (pcc->num_cpus_cores <= 0)						{ ShowError("Error: pcc->num_cpus == 0");		exit(-1);}
 
-		pcc->num_cpus_cores = getCPUCoresNum();
+		
 		int num_cpus_cores = pcc->num_cpus_cores;
 		
 		int totalKeySize = 0;
@@ -90,39 +92,38 @@ namespace panda
 			totalValSize += pcc->input_key_vals.input_keyval_arr[i].valSize;
 		}//for
 
-		//ShowLog("CPU_GROUP_ID:[%d] num_input_record:%d, totalKeySize:%d KB totalValSize:%d KB num_cpus:%d", 
-		//	d_g_state->cpu_group_id, job_conf->num_input_record, totalKeySize/1024, totalValSize/1024, d_g_state->num_cpus_cores);
+		ShowLog("num_input_record:%d, totalKeySize:%f KB totalValSize:%f KB num_cpus:%d", 
+			pcc->input_key_vals.num_input_record, (float)(totalKeySize)/1024.0, (float)(totalValSize)/1024.0, pcc->num_cpus_cores);
 
-		pcc->panda_cpu_task = (pthread_t *)malloc(sizeof(pthread_t)*(num_cpus_cores));
-		pcc->panda_cpu_task_info = (panda_cpu_task_info_t *)malloc(sizeof(panda_cpu_task_info_t)*(num_cpus_cores));
-		pcc->intermediate_key_vals.intermediate_keyval_arr_arr_p = (keyval_arr_t **)malloc(sizeof(keyval_arr_t*)*pcc->input_key_vals.num_input_record);
+		pcc->panda_cpu_task_thread = (pthread_t *)malloc(sizeof(pthread_t)*(num_cpus_cores));
+		pcc->panda_cpu_task_thread_info = (panda_cpu_task_info_t *)malloc(sizeof(panda_cpu_task_info_t)*(num_cpus_cores));
+		pcc->intermediate_key_vals.intermediate_keyval_arr_arr_p = (keyval_arr_t *)malloc(sizeof(keyval_arr_t)*pcc->input_key_vals.num_input_record);
+		pcc->intermediate_key_vals.intermediate_keyval_arr_arr_len = pcc->input_key_vals.num_input_record;
 		memset(pcc->intermediate_key_vals.intermediate_keyval_arr_arr_p, 0, sizeof(keyval_arr_t)*pcc->input_key_vals.num_input_record);
 
 		for (int i=0; i < num_cpus_cores; i++){
 			
-			pcc->panda_cpu_task_info[i].pcc = (panda_cpu_context  *)(this->pCPUContext);
-			pcc->panda_cpu_task_info[i].pnc = (panda_node_context *)(this->pNodeContext);
-			pcc->panda_cpu_task_info[i].num_cpus_cores = num_cpus_cores;
-			pcc->panda_cpu_task_info[i].start_row_idx = 0;
-			pcc->panda_cpu_task_info[i].end_row_idx = 0;
+			pcc->panda_cpu_task_thread_info[i].pcc = (panda_cpu_context  *)(this->pCPUContext);
+			pcc->panda_cpu_task_thread_info[i].pnc = (panda_node_context *)(this->pNodeContext);
+			pcc->panda_cpu_task_thread_info[i].num_cpus_cores = num_cpus_cores;
+			pcc->panda_cpu_task_thread_info[i].start_row_idx = 0;
+			pcc->panda_cpu_task_thread_info[i].end_row_idx = 0;
 			
 		}//for
 
-		ShowLog("Configure the parameters for pcc");
-	
 		pcc->intermediate_key_vals.intermediate_keyval_total_count = (int *)malloc(pcc->input_key_vals.num_input_record*sizeof(int));
 		memset(pcc->intermediate_key_vals.intermediate_keyval_total_count, 0, pcc->input_key_vals.num_input_record * sizeof(int));
 	
 		keyval_arr_t *d_keyval_arr_p;
 		int *count = NULL;
 	
+		int num_threads				= pcc->num_cpus_cores;
 		int num_input_record		= pcc->input_key_vals.num_input_record;
 		int num_records_per_thread	= (num_input_record)/(num_threads);
-		int num_threads				= pcc->num_cpus_cores;
 	
 		int start_row_idx = 0;
 		int end_row_idx = 0;
-	
+		
 		for (int tid = 0; tid < num_threads; tid++){
 	
 			end_row_idx = start_row_idx + num_records_per_thread;
@@ -131,9 +132,12 @@ namespace panda
 			pcc->panda_cpu_task_thread_info[tid].start_row_idx = start_row_idx;
 			if (end_row_idx > num_input_record) 
 				end_row_idx = num_input_record;
-			pcc->panda_cpu_task_info[tid].end_row_idx = end_row_idx;
-			if (pthread_create(&(pcc->panda_cpu_task_thread[tid]),NULL,ExecutePandaCPUMapThread,(char *)&(pcc->panda_cpu_task_thread_info[tid])) != 0) 
+			pcc->panda_cpu_task_thread_info[tid].end_row_idx = end_row_idx;
+			
+			//if(end_row_idx > start_row_idx)
+			if (pthread_create(&(pcc->panda_cpu_task_thread[tid]),NULL,ExecutePandaCPUMapThread,(void *)&(pcc->panda_cpu_task_thread_info[tid])) != 0) 
 				ShowError("Thread creation failed Tid:%d!",tid);
+
 			start_row_idx = end_row_idx;
 
 		}//for
@@ -147,7 +151,7 @@ namespace panda
 	}//int PandaMapReduceJob::StartPandaCPUMapTasks()
 
 
-//void InitGPUCardMapReduce(gpu_card_context* d_g_state)
+ //void InitGPUCardMapReduce(gpu_card_context* d_g_state)
  int PandaMapReduceJob::StartPandaGPUMapTasks()
 	{		
 
@@ -233,19 +237,20 @@ namespace panda
 }//int 
 
 
-void PandaMapReduceJob::InitPandaCPUMapReduce()
-{
+ void PandaMapReduceJob::InitPandaCPUMapReduce()
+ {
 
-	this->pCPUContext = CreatePandaCPUContext();
-	this->pCPUContext->input_key_vals.num_input_record = mapTasks.size();
-	this->pCPUContext->input_key_vals.input_keyval_arr = 	(keyval_t *)malloc(mapTasks.size()*sizeof(keyval_t));
+	this->pCPUContext									= CreatePandaCPUContext();
+	this->pCPUContext->input_key_vals.num_input_record	= cpuMapTasks.size();
+	this->pCPUContext->input_key_vals.input_keyval_arr	= (keyval_t *)malloc(cpuMapTasks.size()*sizeof(keyval_t));
+	this->pCPUContext->num_cpus_cores					= getCPUCoresNum();
 
-	for (unsigned int i= 0;i<mapTasks.size();i++){
+	for (unsigned int i= 0;i<cpuMapTasks.size();i++){
 
-		void *key = this->mapTasks[i]->key;
-		int keySize = this->mapTasks[i]->keySize;
-		void *val = this->mapTasks[i]->val;
-		int valSize = this->mapTasks[i]->valSize;
+		void *key = this->cpuMapTasks[i]->key;
+		int keySize = this->cpuMapTasks[i]->keySize;
+		void *val = this->cpuMapTasks[i]->val;
+		int valSize = this->cpuMapTasks[i]->valSize;
 		this->pCPUContext->input_key_vals.input_keyval_arr[i].key = key;
 		this->pCPUContext->input_key_vals.input_keyval_arr[i].keySize = keySize;
 		this->pCPUContext->input_key_vals.input_keyval_arr[i].val = val;
@@ -301,14 +306,15 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
 {
 
 	this->pGPUContext = CreatePandaGPUContext();
-	this->pGPUContext->input_key_vals.num_input_record = mapTasks.size();//Ratio
-	this->pGPUContext->input_key_vals.h_input_keyval_arr = 	(keyval_t *)malloc(mapTasks.size()*sizeof(keyval_t));
+	this->pGPUContext->input_key_vals.num_input_record = gpuMapTasks.size();//Ratio
+	this->pGPUContext->input_key_vals.h_input_keyval_arr = 	(keyval_t *)malloc(gpuMapTasks.size()*sizeof(keyval_t));
 
-	for (unsigned int i= 0;i<mapTasks.size();i++){
-		void *key = this->mapTasks[i]->key;
-		int keySize = this->mapTasks[i]->keySize;
-		void *val = this->mapTasks[i]->val;
-		int valSize = this->mapTasks[i]->valSize;
+	//TODO for the test purpose only
+	for (unsigned int i= 0;i<gpuMapTasks.size();i++){
+		void *key = this->gpuMapTasks[i]->key;
+		int keySize = this->gpuMapTasks[i]->keySize;
+		void *val = this->gpuMapTasks[i]->val;
+		int valSize = this->gpuMapTasks[i]->valSize;
 		this->pGPUContext->input_key_vals.h_input_keyval_arr[i].key = key;
 		this->pGPUContext->input_key_vals.h_input_keyval_arr[i].keySize = keySize;
 		this->pGPUContext->input_key_vals.h_input_keyval_arr[i].val = val;			//didn't use memory copy
@@ -383,7 +389,14 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
 		else
 			this->pRuntimeContext = NULL;
 
-		//StartPandaMessageThread();
+		if (messager    != NULL) {
+			messager->MsgInit();
+			messager->setPnc(this->pNodeContext);
+			StartPandaMessageThread();
+		}else{
+			ShowError("messager == NULL");
+		}
+		MPI_Barrier(MPI_COMM_WORLD);
 
 	}//void
 
@@ -740,15 +753,42 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
   void PandaMapReduceJob::addInput(Chunk * chunk)
   {
     chunks.push_back(chunk);
-	addMapTasks(chunk);
+	
+	addCPUMapTasks(chunk);
+	addGPUMapTasks(chunk);
   }//void
 
   //To be removed
-  void PandaMapReduceJob::addMapTasks(panda::Chunk *chunk)
+		
+		
+  void PandaMapReduceJob::addCPUMapTasks(panda::Chunk *chunk)
   {
-	  //MapTask *pMapTask = new MapTask(keySize,key,valSize,val);
-	  //mapTasks.push_back(pMapTask);
+	  void *key		= chunk->getKey();
+	  void *val		= chunk->getVal();
+	  int keySize	= chunk->getKeySize();
+	  int valSize	= chunk->getValSize();
+	  MapTask *pMapTask = new MapTask(keySize,key,valSize,val);
+	  cpuMapTasks.push_back(pMapTask);
   }//void
+
+  void PandaMapReduceJob::addGPUMapTasks(panda::Chunk *chunk)
+  {
+
+	  void *key = chunk->getKey();
+	  void *val = chunk->getVal();
+	  int keySize = chunk->getKeySize();
+	  int valSize = chunk->getValSize();
+
+	  MapTask *pMapTask = new MapTask(keySize,key,valSize,val);
+	  gpuMapTasks.push_back(pMapTask);
+
+  }//void
+
+  void PandaMapReduceJob::StartPandaCPUCombiner()
+  {
+	  ExecutePandaCPUCombiner(this->pCPUContext);
+
+  }//void 
 
 
   void PandaMapReduceJob::StartPandaGPUCombiner()
@@ -771,6 +811,11 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
   void PandaMapReduceJob::StartPandaAddReduceTask4GPU(int start_row_id, int end_row_id)
   {
 	  AddReduceTask4GPU(this->pGPUContext,this->pNodeContext,start_row_id,end_row_id);
+  }//void
+
+  void PandaMapReduceJob::StartPandaAddReduceTask4CPU(int start_row_id, int end_row_id)
+  {
+	  AddReduceTask4CPU(this->pCPUContext,this->pNodeContext,start_row_id,end_row_id);
   }//void
 
 
@@ -929,6 +974,17 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
 
   }//void
 
+  void PandaMapReduceJob::StartPandaCPUReduceTasks(){
+
+		panda_cpu_context *pcc = this->pCPUContext;
+		if (pcc->sorted_key_vals.sorted_keyvals_arr_len <= 0) return;
+		for (int map_idx = 0; map_idx < pcc->sorted_key_vals.sorted_keyvals_arr_len; map_idx++){
+			keyvals_t *kv_p = (keyvals_t *)(&(pcc->sorted_key_vals.sorted_intermediate_keyvals_arr[map_idx]));
+			if (kv_p->val_arr_len <=0) ShowError("kv_p->val_arr_len <=0");
+			else	cpu_reduce(kv_p->key, kv_p->vals, kv_p->keySize, kv_p->val_arr_len, d_g_state);
+		}//for
+  }
+
   void PandaMapReduceJob::StartPandaPartitionSubSendData()
   {
 
@@ -955,9 +1011,7 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
 	  if(valSizeArray==NULL) ShowLog("Error");
 	  if(keyPosArray==NULL)  ShowLog("Error");
 	  if(valPosArray==NULL)  ShowLog("Error");
-
-	  //store keyPos keySize valPos valSize in a int array.  
-	  
+ 
 	  for (int i=0; i<curlen; i++){
 		keyPosKeySizeValPosValSize[i] = keyPosArray[i];
 	  }//for
@@ -996,29 +1050,27 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
 
       if (syncPartSends) PandaPartitionCheckSends(true);
 
-	  /*this->pNodeContext->buckets.savedKeysBuff.clear();
+	  /*
+	  this->pNodeContext->buckets.savedKeysBuff.clear();
 	  this->pNodeContext->buckets.savedValsBuff.clear();
 	  this->pNodeContext->buckets.keyPos.clear();
 	  this->pNodeContext->buckets.valPos.clear();
-	  this->pNodeContext->buckets.counts.clear();*/
+	  this->pNodeContext->buckets.counts.clear();
+	  */
 
   }//void
 
   void PandaMapReduceJob::execute()
-  {		
-		
+  {
+
     if (mapper != NULL)
     {
-		
-      if (messager        != NULL) messager->MsgInit();
-      if (combiner        != NULL) combiner->init();
-		
-	  StartPandaMessageThread();
-	  MPI_Barrier(MPI_COMM_WORLD);
-		
-	  InitPandaRuntime();
-	  if (messager    != NULL) messager->setPnc(this->pNodeContext);
-	  
+	  ////////////////////////
+	  InitPandaRuntime();	//
+	  ////////////////////////
+
+	  ShowLog("gpuMapTasks:%d  cpuMapTasks:%d",gpuMapTasks.size(),cpuMapTasks.size());
+
 	  InitPandaGPUMapReduce();
 	  InitPandaCPUMapReduce();
 
@@ -1028,11 +1080,7 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
 	  StartPandaGPUCombiner();
 	  StartPandaCPUCombiner();
 
-      //mapper->finalize();
-      if (messager        != NULL) messager->MsgFinalize();
-      if (partitioner     != NULL) partitioner->finalize();
-      if (partialReducer  != NULL) partialReducer->finalize();
-      if (combiner        != NULL) combiner->init();
+      if (messager != NULL) messager->MsgFinalize();
 
     }//if
 
@@ -1040,20 +1088,19 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
 
     if (sorter != NULL)
     {
-      //Sorter->init();
-      //Sort();
-      //Sorter->finalize();
-	  //Panda Code
-	  StartPandaSortGPUResults();
+	  ////////////////////////////////////
+	  StartPandaSortGPUResults();		//
+	  StartPandaLocalMergeGPUOutput();	//
+	  ////////////////////////////////////
+	  StartPandaSortCPUResults();
     }//if
 
+	///////////////////////////
+	//	Shuffle Stage Start  //
+	///////////////////////////
 	
-	/////////////////////////////////
-	//	Shuffle Stage Start
-	/////////////////////////////////
-
-	StartPandaLocalMergeGPUOutput();
 	MPI_Barrier(MPI_COMM_WORLD);
+
 	StartPandaGlobalPartition();
 	StartPandaPartitionCheckSends(true);
 	StartPandaExitMessager();
@@ -1062,16 +1109,22 @@ void PandaMapReduceJob::InitPandaGPUMapReduce()
 	//	Shuffle Stage Done
 	/////////////////////////////////
 
+	MPI_Barrier(MPI_COMM_WORLD);
+
+	//Copy recved bucket data into sorted array 
 	StartPandaSortBucket();
-	StartPandaCopyRecvedBucketToGPU();
+
+	//StartPandaCopyRecvedBucketToGPU();
 	
 	if (reducer!=NULL){
 
 		int start_row_id = 0;
 		int end_row_id = this->pNodeContext->sorted_key_vals.sorted_keyvals_arr_len;
-
 		StartPandaAddReduceTask4GPU(start_row_id, end_row_id);
 		StartPandaGPUReduceTasks();
+
+		StartPandaAddReduceTask4CPU(start_row_id, end_row_id);
+		StartPandaCPUReduceTasks();
 
 	}//if
 

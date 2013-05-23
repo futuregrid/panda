@@ -1,20 +1,15 @@
 /*
- 
 	Copyright 2012 The Trustees of Indiana University.  All rights reserved.
 	CGL MapReduce Framework on GPUs and CPUs
-	
-	Code Name: Panda 
-	
+	Code Name: Panda
 	File: Panda.h 
 	First Version:		2012-07-01 V0.1
-	Last  Version:		2012-09-01 V0.3	
+	Last  Version:		2012-09-01 V0.3
 	Last Updates:		2013-05-06 V0.4
 
 	Developer: Hui Li (lihui@indiana.edu)
-
 	This is the source code for Panda, a MapReduce runtime on GPUs and CPUs.
-
- */
+*/
 
 /*
 #ifdef WIN32 
@@ -68,7 +63,7 @@
 #define THREAD_BLOCK_SIZE 16
 
 #define SHARED_BUFF_LEN 204800
-#define CPU_SHARED_BUFF_SIZE 40960000
+#define CPU_SHARED_BUFF_SIZE 40960
 
 #define _MAP		-1
 #define _COMBINE	-2
@@ -197,13 +192,17 @@ struct job_configuration
 };//job_configuration;
 			
 //typedef 
-struct panda_cpu_task_info_t {
-							
-	int tid;			//accelerator group id
-	int num_cpus_cores;		//num of processors
-	char device_type;		
-	void *d_g_state;		//gpu_context  cpu_context
-	void *cpu_job_conf;
+struct panda_cpu_context;
+struct panda_node_context;
+
+struct panda_cpu_task_info_t {	
+								
+	
+	int tid;					//accelerator group id
+	int num_cpus_cores;			//num of processors
+	char device_type;			//
+	panda_cpu_context *pcc;				    //gpu_context  cpu_context
+	panda_node_context *pnc;					//
 	
 	int start_row_idx;
 	int end_row_idx;
@@ -256,6 +255,7 @@ struct gpu_card_context
 						
 };// gpu_card_context;
 
+#if 1
 struct gpu_context
 {	
 
@@ -310,10 +310,9 @@ struct gpu_context
   //data for reduce results
   int d_reduced_keyval_arr_len;
   keyval_t* d_reduced_keyval_arr;
-
   int *keyval_pairs;
-  
-};// gpu_context;
+};//  gpu_context;
+#endif
 
 
 //typedef 
@@ -344,84 +343,160 @@ struct panda_context{
 struct panda_gpu_context
 {	
 
-  struct{
+	struct{
 
-  void *d_input_keys_shared_buff;
-  void *d_input_vals_shared_buff;
-  keyval_pos_t *d_input_keyval_pos_arr;
+	void *d_input_keys_shared_buff;
+	void *d_input_vals_shared_buff;
+	keyval_pos_t *d_input_keyval_pos_arr;
 
-  //data for input results
-  int num_input_record;
+	//data for input results
+	int num_input_record;
 
-  keyval_t * h_input_keyval_arr;
-  keyval_t * d_input_keyval_arr;
+	keyval_t * h_input_keyval_arr;
+	keyval_t * d_input_keyval_arr;
 
-	}input_key_vals;
-
+	} input_key_vals;
 
 	struct{
 
-  //data for intermediate results
-  int *d_intermediate_keyval_total_count;
-  int d_intermediate_keyval_arr_arr_len;			//number of elements of d_intermediate_keyval_arr_arr
-  //keyval_arr_t *d_intermediate_keyval_arr_arr;	//data structure to store intermediate keyval pairs in device
-  keyval_arr_t **d_intermediate_keyval_arr_arr_p;	
-  keyval_t* d_intermediate_keyval_arr;				//data structure to store flattened intermediate keyval pairs
+	//data for intermediate results
+	int *d_intermediate_keyval_total_count;
+	int d_intermediate_keyval_arr_arr_len;			//number of elements of d_intermediate_keyval_arr_arr
+	//keyval_arr_t *d_intermediate_keyval_arr_arr;	//data structure to store intermediate keyval pairs in device
+	keyval_arr_t **d_intermediate_keyval_arr_arr_p;	
+	keyval_t* d_intermediate_keyval_arr;				//data structure to store flattened intermediate keyval pairs
 
-  void *d_intermediate_keys_shared_buff;
-  void *d_intermediate_vals_shared_buff;
-  keyval_pos_t *d_intermediate_keyval_pos_arr;
+	void *d_intermediate_keys_shared_buff;
+	void *d_intermediate_vals_shared_buff;
+	keyval_pos_t *d_intermediate_keyval_pos_arr;
 
-  void *h_intermediate_keys_shared_buff;
-  void *h_intermediate_vals_shared_buff;
-  keyval_pos_t *h_intermediate_keyval_pos_arr;
+	void *h_intermediate_keys_shared_buff;
+	void *h_intermediate_vals_shared_buff;
+	keyval_pos_t *h_intermediate_keyval_pos_arr;
 
 	} intermediate_key_vals;
+	
+	struct{
+	
+	//data for sorted intermediate results
+	int d_sorted_keyvals_arr_len;
+	void *h_sorted_keys_shared_buff;
+	void *h_sorted_vals_shared_buff;
+	int totalKeySize;
+	int totalValSize;
+	sorted_keyval_pos_t *h_sorted_keyval_pos_arr;
+	
+	void *d_sorted_keys_shared_buff;
+	void *d_sorted_vals_shared_buff;
+	keyval_pos_t *d_keyval_pos_arr;
+	int *d_pos_arr_4_sorted_keyval_pos_arr;
+	
+	}sorted_key_vals;
+	
+	struct{
+	
+	//data for reduce results
+	int d_reduced_keyval_arr_len;
+	keyval_t* d_reduced_keyval_arr;
+	//keyval_t* h_reduced_keyval_arr;
+	//int *keyval_pairs;
+	
+	} reduced_key_vals;
+	
+	struct{
+	
+	int h_reduced_keyval_arr_len;
+	//keyval_t* d_reduced_keyval_arr;
+	keyval_t* h_reduced_keyval_arr;
+	void *h_KeyBuff;
+	void *h_ValBuff;
+	
+	void *d_KeyBuff;
+	void *d_ValBuff;
+	
+	int totalKeySize;
+	int totalValSize;
+	
+	} output_key_vals;
+	
+};// panda_gpu_context;
 
-  struct{
 
-  //data for sorted intermediate results
-  int d_sorted_keyvals_arr_len;
-  void *h_sorted_keys_shared_buff;
-  void *h_sorted_vals_shared_buff;
-  int totalKeySize;
-  int totalValSize;
-  sorted_keyval_pos_t *h_sorted_keyval_pos_arr;
-					
-  void *d_sorted_keys_shared_buff;
-  void *d_sorted_vals_shared_buff;
-  keyval_pos_t *d_keyval_pos_arr;
-  int *d_pos_arr_4_sorted_keyval_pos_arr;
+//typedef
+struct panda_cpu_context
+{	
+	
+	int num_cpus_cores;
+	pthread_t  *panda_cpu_task_thread;
+	panda_cpu_task_info_t *panda_cpu_task_thread_info;
+
+	struct{
+	
+	void *input_keys_shared_buff;
+	void *input_vals_shared_buff;
+	keyval_pos_t *input_keyval_pos_arr;
+	int num_input_record;
+	keyval_t * input_keyval_arr;
+	
+	}input_key_vals;
+	
+	struct{
+	
+	int *intermediate_keyval_total_count;
+	int intermediate_keyval_arr_arr_len;			//number of elements of d_intermediate_keyval_arr_arr
+	keyval_arr_t *intermediate_keyval_arr_arr_p;	
+	keyval_t* intermediate_keyval_arr;				//data structure to store flattened intermediate keyval pairs
+	
+	void *intermediate_keys_shared_buff;
+	void *intermediate_vals_shared_buff;
+	keyval_pos_t *intermediate_keyval_pos_arr;
+	
+	} intermediate_key_vals;
+
+	struct{
+
+		/*
+	int sorted_keyvals_arr_len;
+	void *sorted_keys_shared_buff;
+	void *sorted_vals_shared_buff;
+	int totalKeySize;
+	int totalValSize;
+	sorted_keyval_pos_t *sorted_keyval_pos_arr;
+	keyval_pos_t *keyval_pos_arr;
+	int *pos_arr_4_sorted_keyval_pos_arr;
+		*/
+
+	int sorted_keyvals_arr_len;
+	keyvals_t		*sorted_intermediate_keyvals_arr;
+			
+	void *h_sorted_keys_shared_buff;
+	void *h_sorted_vals_shared_buff;
+			
+	int totalKeySize;
+	int totalValSize;
 
 	}sorted_key_vals;
 
 	struct{
-					
-  //data for reduce results
-  int d_reduced_keyval_arr_len;
-  keyval_t* d_reduced_keyval_arr;
-  //keyval_t* h_reduced_keyval_arr;
-  //int *keyval_pairs;
+
+	//data for reduce results
+	int reduced_keyval_arr_len;
+	keyval_t* reduced_keyval_arr;
 
 	} reduced_key_vals;
 
 	struct{
-
-  int h_reduced_keyval_arr_len;
-  //keyval_t* d_reduced_keyval_arr;
-  keyval_t* h_reduced_keyval_arr;
-  void *h_KeyBuff;
-  void *h_ValBuff;
-
-  void *d_KeyBuff;
-  void *d_ValBuff;
-
-  int totalKeySize;
-  int totalValSize;
-
+	
+	int reduced_keyval_arr_len;
+	keyval_t* reduced_keyval_arr;
+	void *KeyBuff;
+	void *ValBuff;
+	int totalKeySize;
+	int totalValSize;
+	
 	} output_key_vals;
-  
-};// panda_gpu_context;
+};// panda_cpu_context;
+
 
 struct panda_node_context
 {				
@@ -458,14 +533,8 @@ struct panda_node_context
 
 	struct{
 
-	//void * keysBuff, * valsBuff;
-	
 	std::vector<char * > savedKeysBuff, savedValsBuff;
 	std::vector<int  * > counts, keyPos, valPos, keySize, valSize;
-	//int keyBuffSize;
-	//int valBuffSize;
-	//int *keyPosKeySizeValPosValSize;
-	//int eleLen;  maxlen, keyBuffSize, valBuffSize
 
 	} recv_buckets;
 	
@@ -507,8 +576,12 @@ struct  thread_info_t {
 	//int num_gpu_core_groups;		//
 	//int num_cpus;		//num of processors
 	char device_type;
+
 	void *d_g_state;	//device context
 	void *job_conf;		//job configuration
+
+	void *pcc;
+	void *pnc;
 
 	void *panda;
 	int start_idx;
@@ -583,11 +656,19 @@ void CPUEmitMapOutput(void *key,
 					  int map_task_idx);
 
 extern "C"
-void CPUEmitCombinerOutput(void *key, 
+void PandaEmitCPUMapOutput(void *key,
+						   void *val,
+						   int keySize,
+						   int valSize,
+						   panda_cpu_context *pcc,
+						   int map_task_idx);
+
+extern "C"
+void PandaCPUEmitCombinerOutput(void *key, 
 						  void *val, 
 						  int keySize, 
 						  int valSize, 
-						  cpu_context *d_g_state, 
+						  panda_cpu_context *d_g_state, 
 						  int map_task_idx);
 
 
@@ -616,11 +697,11 @@ __device__ void GPUEmitCombinerOutput(void*		key,
 				   int map_task_idx);
 
 
-__device__ void GPUEmitCombinerOutput(void*             key,
+__device__ void PandaGPUEmitCombinerOutput(void*             key,
                                                 void*           val,
                                                 int             keySize,
                                                 int             valSize,
-                                   		panda_gpu_context *d_g_state,
+                                   		panda_gpu_context *pgc,
                                    		int map_task_idx);
 
 __device__ void GPUEmitReduceOuput (void*		key, 
@@ -645,11 +726,11 @@ __device__ void GPUEmitMapOutput(void *key,
 								  gpu_context *d_g_state,
 								  int map_task_idx);
 
-__device__ void GPUEmitMapOutput(void *key,
+__device__ void PandaGPUEmitMapOutput(void *key,
                                                                   void *val,
                                                                   int keySize,
                                                                   int valSize,
-                                                                  panda_gpu_context *d_g_state,
+                                                                  panda_gpu_context *pgc,
                                                                   int map_task_idx);
 
 
@@ -682,6 +763,8 @@ void ExecutePandaShuffleMergeGPU(panda_node_context *d_g_state_1, panda_gpu_cont
 
 void AddReduceTask4GPU(panda_gpu_context* pgc, panda_node_context *pnc, int start_row_id, int end_row_id);
 
+void AddReduceTask4CPU(panda_cpu_context* pgc, panda_node_context *pnc, int start_row_id, int end_row_id);
+
 extern "C"
 void PandaShuffleMergeCPU(panda_context *d_g_state_1, cpu_context *d_g_state_0);
 
@@ -695,7 +778,7 @@ void StartPandaGPUMapPartitioner(panda_gpu_context pgc, dim3 grids, dim3 blocks)
 void RunGPUMapTasksHost(panda_gpu_context pgc, int curIter, int totalIter, dim3 grids, dim3 blocks);
 void ExecutePandaGPUReduceTasks(panda_gpu_context *pgc);
 void ExecutePandaGPUCombiner(panda_gpu_context *pgc);
-
+void* ExecutePandaCPUMapThread(void* thread_info);
 
 extern "C"
 void Start_Panda_Job(job_configuration*job_conf);
@@ -723,6 +806,9 @@ void StartCPUShuffle(cpu_context *d_g_state);
 extern "C"
 void StartCPUShuffle2(thread_info_t* thread_info);
 
+extern "C"
+void ExecutePandaCPUSort(panda_cpu_context *pcc, panda_node_context *pnc);
+
 //extern "C"
 //void StartGPUReduce(gpu_context *d_g_state);
 
@@ -732,13 +818,16 @@ void sort_CPU(gpu_context *d_g_state);
 //extern "C"
 //void ExecutePandaGPUShuffle(gpu_context *d_g_state);
 
-void ExecutePandaGPUShuffle(panda_gpu_context *pgc);
+void ExecutePandaGPUSort(panda_gpu_context *pgc);
 
 extern "C"
 void *RunPandaCPUMapThread(void *ptr);
 
 extern "C"
 void *RunPandaCPUCombinerThread(void *ptr);
+
+extern "C"
+void ExecutePandaCPUCombiner(panda_cpu_context *pcc);
 
 
 //__global__ 
@@ -757,6 +846,8 @@ void RunGPUCardMapFunction(gpu_context d_g_state,
 						   int curIter, 
 						   int totalIter);
 
+
+
 extern "C"
 int getCPUCoresNum();
 
@@ -765,6 +856,9 @@ int getGPUCoresNum();
 
 extern "C"
 panda_gpu_context *CreatePandaGPUContext();
+
+extern "C"
+panda_cpu_context *CreatePandaCPUContext();
 
 extern "C"
 gpu_context *GetDGlobalState();

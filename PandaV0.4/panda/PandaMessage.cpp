@@ -43,12 +43,12 @@ namespace panda
   {
     	//pnc -> received data 
 	int finishedWorkers	= 0;
-    	bool  * workerDone      = new bool[commSize];
-    	bool  * recvingCount    = new bool[commSize];
-    	int   * counts          = new int [commSize * 3];
-    	int  ** keyRecv         = new int*[commSize];
-    	int  ** valRecv         = new int*[commSize];
-	int  ** keyPosKeySizeValPosValSize = new int*[commSize];
+    	bool  * workerDone					= new bool[commSize];
+    	bool  * recvingCount				= new bool[commSize];
+    	int   * counts						= new int [commSize * 3];
+    	int  ** keyRecv						= new int*[commSize];
+    	int  ** valRecv						= new int*[commSize];
+		int  ** keyPosKeySizeValPosValSize	= new int*[commSize];
 	
 	ShowLog("Start PandaMPIMessage Thread ...");
 	if(workerDone==NULL)ShowLog("Error");
