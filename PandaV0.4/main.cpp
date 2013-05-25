@@ -3,9 +3,6 @@
 #include <panda/PandaMessage.h>
 #include <panda/PandaMapReduceJob.h>
 #include <panda/IntIntSorter.h>
-#include "WCMapper.h"
-#include "WCReducer.h"
-#include "MTRand.h"
 
 #include <cudacpp/Event.h>
 #include <cudacpp/Runtime.h>

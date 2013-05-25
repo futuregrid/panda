@@ -352,17 +352,14 @@ __device__ void PandaGPUEmitMapOutput(void *key, void *val, int keySize, int val
 		
 		memcpy(new_buff, buff, sizeof(char)*(*kv_arr_p->shared_buff_pos));
 		memcpy(new_buff + (*kv_arr_p->shared_buff_len)*2 - sizeof(keyval_pos_t)*(*kv_arr_p->shared_arr_len), 
-			(char*)buff + (*kv_arr_p->shared_buff_len) - sizeof(keyval_pos_t)*(*kv_arr_p->shared_arr_len),
-														sizeof(keyval_pos_t)*(*kv_arr_p->shared_arr_len));
+		(char*)buff + (*kv_arr_p->shared_buff_len) - sizeof(keyval_pos_t)*(*kv_arr_p->shared_arr_len),
+		sizeof(keyval_pos_t)*(*kv_arr_p->shared_arr_len));
 				
 		(*kv_arr_p->shared_buff_len) = 2*(*kv_arr_p->shared_buff_len);
-				
 		for(int  idx = 0; idx < (kv_arr_p->shared_buddy_len); idx++){
-				
 			int cur_map_task_idx = kv_arr_p->shared_buddy[idx];  //the buddy relationship won't be changed 
 			keyval_arr_t *cur_kv_arr_p = pgc->intermediate_key_vals.d_intermediate_keyval_arr_arr_p[cur_map_task_idx];
 			cur_kv_arr_p->shared_buff = new_buff;
-				
 		}//for
 		free(buff);//?????
 		buff = new_buff;

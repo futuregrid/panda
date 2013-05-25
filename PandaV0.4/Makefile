@@ -45,8 +45,8 @@ CUDA_OBJ_FILES 	:= $(addprefix obj/,$(notdir $(CUDA_CPP_FILES:.cpp=.o)))
 CU_OBJ_FILES 	:= $(addprefix cuobj/,$(notdir $(CUDA_CU_FILES:.cu=.o)))
 CUDPP_OBJ_FILES := obj/cudpp.o
 
-WC_OBJ_FILES	:= obj/main.o obj/WCMapper.o obj/WCReducer.o
-WC_OBJ_CU_FILES	:= cuobj/WCMapper.o cuobj/WCReducer.o
+WC_OBJ_FILES	:= obj/main.o 
+WC_OBJ_CU_FILES	:= 
 
 panda: panda_main
 panda_main: $(WC_OBJ_CU_FILES) $(WC_OBJ_FILES) $(OS_OBJ_FILES) $(PANDA_OBJ_FILES) \
@@ -68,11 +68,11 @@ cuobj/%.o: cuda/%.cu $(CUDA_H_FILES) $(H_FILES)
 obj/%.o: ./%.cpp $(OS_H_FILES) $(PANDA_H_FILES) $(CUDA_H_FILES) $(H_FILES)
 	g++ $(LIBS) $(CC_FLAGS) $(INCFLAGS) -c -o $@ $<
 
-cuobj/WCMapper.o: ./WCMapper.cu $(PANDA_H_FILES)
-	nvcc $(LIBS) $(NVCCFLAGS) $(CC_FLAGS) $(INCFLAGS) -c -o $@ $<
+#cuobj/WCMapper.o: ./WCMapper.cu $(PANDA_H_FILES)
+#	nvcc $(LIBS) $(NVCCFLAGS) $(CC_FLAGS) $(INCFLAGS) -c -o $@ $<
 
-cuobj/WCReducer.o: ./WCReducer.cu $(PANDA_H_FILES)
-	nvcc $(LIBS) $(NVCCFLAGS) $(CC_FLAGS) $(INCFLAGS) -c -o $@ $<
+#cuobj/WCReducer.o: ./WCReducer.cu $(PANDA_H_FILES)
+#	nvcc $(LIBS) $(NVCCFLAGS) $(CC_FLAGS) $(INCFLAGS) -c -o $@ $<
 
 obj/cudpp.o:	cudpp/cudpp.cpp include/cudpp/cudpp.h
 	g++ $(LIBS) $(CC_FLAGS) $(INCFLAGS) -c -o $@ $<
