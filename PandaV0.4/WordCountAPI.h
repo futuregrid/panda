@@ -36,18 +36,14 @@ int cpu_compare(const void *d_a, int len_a, const void *d_b, int len_b);
 
 int gpu_card_compare(const void *d_a, int len_a, const void *d_b, int len_b);
 
-//__device__ void gpu_core_map(void *KEY, void*VAL, int keySize, int valSize, gpu_context *d_g_state, int map_task_idx);
-__device__ void gpu_core_map(void *KEY, void*VAL, int keySize, int valSize, panda_gpu_context *pgc, int map_task_idx);
+void panda_cpu_reduce(void *KEY, val_t* VAL, int keySize, int valCount, panda_cpu_context* pcc);
 
-__device__ void gpu_combiner(void *KEY, val_t* VAL, int keySize, int valCount, gpu_context *d_g_state, int map_task_idx);
+__device__ void panda_gpu_core_map(void *KEY, void*VAL, int keySize, int valSize, panda_gpu_context *pgc, int map_task_idx);
 
-//__device__ void gpu_reduce(void *KEY, val_t* VAL, int keySize, int valCount, gpu_context d_g_state);
-
+__device__ void panda_gpu_combiner(void *KEY, val_t* VAL, int keySize, int valCount, panda_gpu_context *pgc, int map_task_idx);
 
 __device__ void gpu_reduce(void *KEY, val_t* VAL, int keySize, int valCount, panda_gpu_context pgc);
 
-
 __device__ int gpu_compare(const void *d_a, int len_a, const void *d_b, int len_b);
-
 
 #endif

@@ -10,16 +10,48 @@
 	Last Updates:		2012-09-02
 
 	Developer: Hui Li (lihui@indiana.edu)
-
 	This is the source code for Panda, a MapReduce runtime on GPUs and CPUs.
+*/
 
- */
+//////////////
+//WORD COUNT//
+//////////////
 
 #ifndef __USER_CU__
 #define __USER_CU__
 
-#include "UserAPI.h"
 #include "Panda.h"
+#include "WordCountAPI.h"
+
+
+void panda_cpu_map(void *KEY, void*VAL, int keySize, int valSize, panda_cpu_context *pcc, int map_task_idx){
+		
+		int wsize = 0;
+		char *start;
+		char *p = (char *)VAL;
+
+		while(1)
+		{
+			start = p;
+			for(;*p>='A' && *p<='Z';p++);
+			*p='\0';
+			++p;
+			wsize=(int)(p-start);
+			if (wsize>6){
+				char *wkey = (char *) malloc (wsize);
+				memcpy(wkey,start,wsize);
+				
+				int *wc = (int *) malloc (sizeof(int));
+				*wc=1;
+				
+				PandaEmitCPUMapOutput(wkey, wc, wsize, sizeof(int), pcc, map_task_idx);
+			}//if
+			valSize = valSize - wsize;
+			if(valSize<=0)
+				break;
+		}//while
+}//map2
+
 
 
 void cpu_map(void *KEY, void*VAL, int keySize, int valSize, cpu_context *d_g_state, int map_task_idx){
@@ -42,7 +74,7 @@ void cpu_map(void *KEY, void*VAL, int keySize, int valSize, cpu_context *d_g_sta
 				int *wc = (int *) malloc (sizeof(int));
 				*wc=1;
 				
-				CPUEmitMapOutput(wkey, wc, wsize, sizeof(int), d_g_state, map_task_idx);
+				//CPUEmitMapOutput(wkey, wc, wsize, sizeof(int), d_g_state, map_task_idx);
 			}//if
 			valSize = valSize - wsize;
 			if(valSize<=0)
@@ -50,7 +82,7 @@ void cpu_map(void *KEY, void*VAL, int keySize, int valSize, cpu_context *d_g_sta
 		}//while
 }//map2
 
-__device__ void gpu_core_map(void *KEY, void*VAL, int keySize, int valSize, panda_gpu_context *pgc, int map_task_idx){
+__device__ void panda_gpu_core_map(void *KEY, void*VAL, int keySize, int valSize, panda_gpu_context *pgc, int map_task_idx){
 
 		
 		int wsize = 0;
@@ -69,13 +101,13 @@ __device__ void gpu_core_map(void *KEY, void*VAL, int keySize, int valSize, pand
 			wsize=(int)(p-start);
 			if (wsize>6){
 				char *wkey = start;
-				GPUEmitMapOutput(wkey, wc, wsize, sizeof(int), pgc, map_task_idx);
+				PandaGPUEmitMapOutput(wkey, wc, wsize, sizeof(int), pgc, map_task_idx);
 			}//if
 			valSize = valSize - wsize;
 			if(valSize<=0)
 				break;
 		}//while
-
+		
 		__syncthreads();
 		
 }//map2
@@ -98,7 +130,7 @@ __device__ void gpu_core_map(void *KEY, void*VAL, int keySize, int valSize, gpu_
 			wsize=(int)(p-start);
 			if (wsize>6){
 				char *wkey = start;
-				GPUEmitMapOutput(wkey, wc, wsize, sizeof(int), d_g_state, map_task_idx);
+				//GPUEmitMapOutput(wkey, wc, wsize, sizeof(int), d_g_state, map_task_idx);
 			}//if
 			valSize = valSize - wsize;
 			if(valSize<=0)
@@ -109,7 +141,7 @@ __device__ void gpu_core_map(void *KEY, void*VAL, int keySize, int valSize, gpu_
 		
 }//map2
 
-void cpu_combiner(void *KEY, val_t* VAL, int keySize, int valCount, cpu_context *d_g_state, int map_task_idx){
+void panda_cpu_combiner(void *KEY, val_t* VAL, int keySize, int valCount, panda_cpu_context *pcc, int map_task_idx){
 		
 		//int *count = (int *) malloc (sizeof(int));
 		int count = 0;
@@ -117,11 +149,11 @@ void cpu_combiner(void *KEY, val_t* VAL, int keySize, int valCount, cpu_context 
 			 count += *((int *)(VAL[i].val));
 		}//for
 
-		CPUEmitCombinerOutput(KEY,&count,keySize,sizeof(int),d_g_state, map_task_idx);
+		PandaCPUEmitCombinerOutput(KEY,&count,keySize,sizeof(int),pcc, map_task_idx);
 		
 }//reduce2
 
-__device__ void gpu_combiner(void *KEY, val_t* VAL, int keySize, int valCount, panda_gpu_context *pgc, int map_task_idx){
+__device__ void panda_gpu_combiner(void *KEY, val_t* VAL, int keySize, int valCount, panda_gpu_context *pgc, int map_task_idx){
 		
 		//int *count = (int *) malloc (sizeof(int));
 
@@ -130,24 +162,20 @@ __device__ void gpu_combiner(void *KEY, val_t* VAL, int keySize, int valCount, p
 			 count += *((int *)(VAL[i].val));
 		}//
 
-		GPUEmitCombinerOutput(KEY,&count,keySize,sizeof(int),pgc, map_task_idx);
+		PandaGPUEmitCombinerOutput(KEY,&count,keySize,sizeof(int),pgc, map_task_idx);
 		
 }//reduce2
 
 
 
-__device__ void gpu_combiner(void *KEY, val_t* VAL, int keySize, int valCount, gpu_context *d_g_state, int map_task_idx){
-		
+/*__device__ void gpu_combiner(void *KEY, val_t* VAL, int keySize, int valCount, gpu_context *d_g_state, int map_task_idx){
 		//int *count = (int *) malloc (sizeof(int));
-
 		int count = 0;
 		for (int i=0;i<valCount;i++){
 			 count += *((int *)(VAL[i].val));
 		}//
-
-		GPUEmitCombinerOutput(KEY,&count,keySize,sizeof(int),d_g_state, map_task_idx);
-		
-}//reduce2
+		//GPUEmitCombinerOutput(KEY,&count,keySize,sizeof(int),d_g_state, map_task_idx);
+}*///reduce2
 
 
 __device__ void panda_gpu_reduce(void *KEY, val_t* VAL, int keySize, int valCount, panda_gpu_context pgc){
@@ -162,6 +190,7 @@ __device__ void panda_gpu_reduce(void *KEY, val_t* VAL, int keySize, int valCoun
 		
 }//reduce2
 
+/*
 __device__ void gpu_reduce(void *KEY, val_t* VAL, int keySize, int valCount, gpu_context d_g_state){
 
 		int count = 0;
@@ -169,9 +198,9 @@ __device__ void gpu_reduce(void *KEY, val_t* VAL, int keySize, int valCount, gpu
 			count += *(int *)(VAL[i].val);
 		}//
 		
-		GPUEmitReduceOuput(KEY,&count,keySize,sizeof(int),&d_g_state);
+		//GPUEmitReduceOuput(KEY,&count,keySize,sizeof(int),&d_g_state);
 		
-}//reduce2
+}*///reduce2
 
 void cpu_reduce(void *KEY, val_t* VAL, int keySize, int valCount, cpu_context* d_g_state){
 
@@ -180,10 +209,20 @@ void cpu_reduce(void *KEY, val_t* VAL, int keySize, int valCount, cpu_context* d
 			count += *(int *)(VAL[i].val);
 		}//
 		
-		CPUEmitReduceOutput(KEY,&count,keySize,sizeof(int),d_g_state);
+		//CPUEmitReduceOutput(KEY,&count,keySize,sizeof(int),d_g_state);
 		
 }//reduce2
 
+void panda_cpu_reduce(void *KEY, val_t* VAL, int keySize, int valCount, panda_cpu_context* pcc){
+
+		int count = 0;
+		for (int i=0;i<valCount;i++){
+			count += *(int *)(VAL[i].val);
+		}//
+		
+		PandaCPUEmitReduceOutput(KEY,&count,keySize,sizeof(int),pcc);
+		
+}//reduce2
 
 
 int cpu_compare(const void *d_a, int len_a, const void *d_b, int len_b)
