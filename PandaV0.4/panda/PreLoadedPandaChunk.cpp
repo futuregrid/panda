@@ -8,13 +8,14 @@ namespace panda
   int PreLoadedPandaChunk::key = 0;
 
   PreLoadedPandaChunk::PreLoadedPandaChunk(void * const pData,
-                                                   const int pElemSize,
-                                                   const int pNumElems)
+                                            const int pElemSize,
+                                             const int pNumElems)
   {
     data = pData;
     elemSize = pElemSize;
     numElems = pNumElems;
   }
+
   PreLoadedPandaChunk::~PreLoadedPandaChunk()
   {
   }
@@ -24,14 +25,17 @@ namespace panda
   {
     return false;
   }
+
   int PreLoadedPandaChunk::getMemoryRequirementsOnGPU() const
   {
     return elemSize * numElems;
   }
+
   void PreLoadedPandaChunk::stageAsync(void * const gpuStorage, cudacpp::Stream * const memcpyStream)
   {
     cudacpp::Runtime::memcpyHtoDAsync(gpuStorage, data, numElems * elemSize, memcpyStream);
   }
+
   void PreLoadedPandaChunk::finalizeAsync()
   {
   }
@@ -45,12 +49,14 @@ namespace panda
 
 namespace panda
 {
-/*
-	VariousSizePandaChunk::VariousSizePandaChunk(void * const pData, const int dataSize)
+
+	VariousSizePandaChunk::VariousSizePandaChunk(const void * pKey, int keySize, const void *  pData, int dataSize)
 	{
 		this->data = pData;
 		this->dataSize = dataSize;
-	}
+		this->keySize = keySize;
+		this->key = pKey;
+	}//VariousSizePandaChunk
 
 	VariousSizePandaChunk::~VariousSizePandaChunk()
 	{
@@ -65,5 +71,16 @@ namespace panda
 	{
     cudacpp::Runtime::memcpyHtoDAsync(gpuStorage, data, dataSize, memcpyStream);
 	}
-*/
+	
+	void VariousSizePandaChunk::finalizeAsync()
+	{
+	}
+
+	void VariousSizePandaChunk::finishLoading()
+	{
+
+	}
+
+	bool VariousSizePandaChunk::updateQueuePosition(const int newPosition)
+	{return false;}
 }

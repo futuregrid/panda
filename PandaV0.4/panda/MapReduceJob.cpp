@@ -78,7 +78,7 @@ namespace panda
           if (devCounts[buf] != devCount)
           {
             printf("Error, device count mismatch %d != %d on %s\n", devCounts[buf], devCount, buf); fflush(stdout);
-          }
+          }//if
         }
         else devCounts[buf] = devCount;
       }
@@ -149,7 +149,7 @@ namespace panda
 
   MapReduceJob::~MapReduceJob()
   {
-    if (messager          != NULL) delete messager;
+    if (messager        != NULL) delete messager;
     if (combiner        != NULL) delete combiner;
     if (mapper          != NULL) delete mapper;
     if (partitioner     != NULL) delete partitioner;

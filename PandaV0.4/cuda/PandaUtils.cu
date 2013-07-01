@@ -18,7 +18,7 @@
 
 
 #include "Panda.h"
-#include "UserAPI.h"
+#include "WordCountAPI.h"
 
 
 #ifdef _WIN32 
@@ -125,6 +125,7 @@ void __checkCudaErrors(cudaError err, const char *file, const int line )
 	}
 }
 
+#if 0
 __global__ void printData(gpu_context d_g_state ){
 	//printf("-----------printData TID:%d\n",TID);
 	int num_records_per_thread = (d_g_state.num_input_record+(gridDim.x*blockDim.x)-1)/(gridDim.x*blockDim.x);
@@ -166,6 +167,8 @@ __global__ void printData(gpu_context d_g_state ){
 	}//for
 
 }//printData
+#endif
+
 
 #ifdef DEV_MODE
 __global__ void printData2(gpu_context d_g_state ){
@@ -201,11 +204,11 @@ __global__ void printData2(gpu_context d_g_state ){
 }//printData
 #endif
 
-
+#if 0
 __global__ void printData3(gpu_context d_g_state){
 
 	if (TID==0)
-	ShowWarn("))))))))))))))))))))))))))))))");
+	
 	__syncthreads();
 	//ShowWarn("sorted_key_arr_len:%d d_sorted_keyvals_arr_len:%d", d_g_state.d_reduced_keyval_arr_len,d_g_state.d_sorted_keyvals_arr_len);
 									  
@@ -215,11 +218,11 @@ __global__ void printData3(gpu_context d_g_state){
 	__syncthreads();
 	
 }//printData
-
+#endif
 
 
 //--------------------------------------------------------
-//start_row_id a timer
+//start_task_id a timer
 //
 //param	: start_row_id_tv
 //--------------------------------------------------------
