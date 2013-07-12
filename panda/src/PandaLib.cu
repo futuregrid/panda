@@ -264,13 +264,13 @@ void AddReduceTaskOnCPU(panda_cpu_context* pcc, panda_node_context *pnc, int sta
 void AddReduceTaskOnGPUCard(panda_gpu_card_context* pgcc, panda_node_context *pnc, int start_task_id, int end_task_id){
 	
 	if (end_task_id <= start_task_id) {
-		ShowError("end_task_id <= start_task_id");
+		ShowError("end_task_id:%d <= start_task_id:%d", end_task_id <= start_task_id);
 		return;
 	}//if
 
 	int len = pnc->sorted_key_vals.sorted_keyvals_arr_len;
 	if (len <= 0){
-		ShowError("error! len < 0");
+		ShowError("error! len:%d < 0",len);
 		return;
 	}
 
@@ -637,15 +637,17 @@ __global__ void PandaExecuteMapTasksOnGPU(panda_gpu_context pgc, int curIter, in
 
 //void PandaPandaLaunchMapTasksOnGPU(*pgc, totalIter -1 - iter, totalIter, grids,blocks);
 void PandaLaunchMapTasksOnGPU(panda_gpu_context pgc, int curIter, int totalIter, dim3 grids, dim3 blocks){
-
+	
 	PandaExecuteMapTasksOnGPU<<<grids,blocks>>>(pgc, totalIter -1 - curIter, totalIter);
-
+	
 }//void
 
-void PandaLaunchMapTasksOnGPUCard(panda_gpu_card_context pgcc){
+void PandaExecuteMapTasksOnGPUCard(panda_gpu_card_context pgcc){
 
 	for (int i=0;i<pgcc.input_key_vals.num_input_record;i++){
+		double t1 = PandaTimer();
 
+		//ShowLog("start to run panda_gpu_card");
 		panda_gpu_card_map(pgcc.input_key_vals.input_keyval_arr[i].key,
 			pgcc.input_key_vals.input_keyval_arr[i].val,
 			pgcc.input_key_vals.input_keyval_arr[i].keySize,
@@ -653,6 +655,11 @@ void PandaLaunchMapTasksOnGPUCard(panda_gpu_card_context pgcc){
 			&pgcc,
 			i
 			);
+	
+		double t2 = PandaTimer();
+
+		DoLog2Disk("		panda_gpu_card take %f seconds",t2-t1);	
+
 		cudaThreadSynchronize();
 
 	}//for
@@ -762,9 +769,9 @@ void PandaExecuteCombinerOnGPUCard(panda_gpu_card_context *pgcc){
 		exit(-1);
 	}//if
 
-
 	int start_idx = 0;
 	keyval_arr_t *kv_arr_p = (keyval_arr_t *)&(pgcc->intermediate_key_vals.intermediate_keyval_arr_arr_p[start_idx]);
+	ShowLog("kv_arr_p->arr_len:%d  kv_arr_p->shared_arr_len:%d",kv_arr_p->arr_len, *kv_arr_p->shared_arr_len);
 
 	int unmerged_shared_arr_len = *kv_arr_p->shared_arr_len;
     //int *shared_buddy = kv_arr_p->shared_buddy;
@@ -792,7 +799,7 @@ void PandaExecuteCombinerOnGPUCard(panda_gpu_card_context *pgcc){
 		char *iVal = shared_buff + first_kv_p->valPos;
 
 		if((first_kv_p->keyPos%4!=0)||(first_kv_p->valPos%4!=0)){
-			ShowError("keyPos or valPos is not aligned with 4 bytes, results could be wrong");
+			ShowError("!!!!!!!!!!!!keyPos or valPos is not aligned with 4 bytes, results could be wrong");
 		}//
 	
 		int index = 0;
@@ -830,7 +837,7 @@ void PandaExecuteCombinerOnGPUCard(panda_gpu_card_context *pgcc){
 		num_keyval_pairs_after_combiner++;
 	}//for
 
-	free(val_t_arr);
+	//free(val_t_arr);
 	pgcc->intermediate_key_vals.intermediate_keyval_total_count[start_idx] = num_keyval_pairs_after_combiner;
 	return;
 

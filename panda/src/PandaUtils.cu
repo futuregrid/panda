@@ -9,16 +9,13 @@
 	First Version:		2012-07-01 V0.1
 	Current Version:	2012-09-01 V0.3	
 	Last Updates:		2012-09-02
-
 	Developer: Hui Li (lihui@indiana.edu)
-
 	This is the source code for Panda, a MapReduce runtime on GPUs and CPUs.
 
  */
 
 
 #include "Panda.h"
-
 
 #ifdef _WIN32 
 #include <windows.h> 
@@ -33,7 +30,6 @@
 
 #ifndef __PANDAUTILS_CU__
 #define __PANDAUTILS_CU__
-
 
 
 int getGPUCoresNum() { 
@@ -55,6 +51,18 @@ int getGPUCoresNum() {
 	//ShowLog("Configure Device ID:%d: Device Name:%s MultProcessorCount:%d sm_per_multiproc:%d", i, gpu_dev.name,gpu_dev.multiProcessorCount,sm_per_multiproc);
 
 }
+
+void sleep(int sleepMs)
+{
+#ifdef __linux
+    usleep(sleepMs * 1000);   // usleep takes sleep time in us
+#endif
+#ifdef _WIN32
+    Sleep(sleepMs);
+#endif
+}
+
+
 
 int getCPUCoresNum() { 
 

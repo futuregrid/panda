@@ -170,12 +170,14 @@ __global__ void copyDataFromDevice2Host4Reduce(panda_gpu_context pgc)
 	}//for
 
 	for (int i = thread_start_idx; i < thread_end_idx;i++){
+
 		memcpy( (char *)(pgc.output_key_vals.d_KeyBuff) + key_pos,
 			(char *)(pgc.reduced_key_vals.d_reduced_keyval_arr[i].key), pgc.reduced_key_vals.d_reduced_keyval_arr[i].keySize);
 		key_pos += pgc.reduced_key_vals.d_reduced_keyval_arr[i].keySize;
 		memcpy( (char *)(pgc.output_key_vals.d_ValBuff) + val_pos,
 			(char *)(pgc.reduced_key_vals.d_reduced_keyval_arr[i].val), pgc.reduced_key_vals.d_reduced_keyval_arr[i].valSize);
 		val_pos += pgc.reduced_key_vals.d_reduced_keyval_arr[i].valSize;
+
 	}//for
 
 }//__global__	
@@ -194,15 +196,15 @@ void PandaExecuteSortOnGPUCard(panda_gpu_card_context *pgcc, panda_node_context 
 		total_count += pgcc->intermediate_key_vals.intermediate_keyval_total_count[i];
 	}//for
 
-	int keyvals_arr_len = pnc->sorted_key_vals.sorted_keyval_arr_max_len;
+	int keyvals_arr_max_len = pnc->sorted_key_vals.sorted_keyval_arr_max_len;
 	//pnc->sorted_key_vals.sorted_intermediate_keyvals_arr = (keyvals_t *)malloc(sizeof(keyvals_t)*keyvals_arr_len);
 	keyvals_t * sorted_intermediate_keyvals_arr = pnc->sorted_key_vals.sorted_intermediate_keyvals_arr;
 
-	int sorted_key_arr_len = 0;
 	int num_threads = 1;
+	int sorted_key_arr_len = 0;
 	int num_records_per_thread = pgcc->intermediate_key_vals.intermediate_keyval_arr_arr_len;
 
-	for (int tid = 0;tid<num_threads;tid++){
+	for (int tid = 0; tid < num_threads; tid++){
 	
 		end_idx = start_idx + num_records_per_thread;
 		if (tid < (pgcc->input_key_vals.num_input_record % num_threads) )
@@ -211,7 +213,9 @@ void PandaExecuteSortOnGPUCard(panda_gpu_card_context *pgcc, panda_node_context 
 		if (end_idx > pgcc->input_key_vals.num_input_record)
 			end_idx = pgcc->input_key_vals.num_input_record;
 		
-		if (end_idx<=start_idx) continue;
+		if (end_idx <= start_idx) 
+			continue;
+
 		keyval_arr_t *kv_arr_p = (keyval_arr_t *)&(pgcc->intermediate_key_vals.intermediate_keyval_arr_arr_p[start_idx]);
 
 		int shared_arr_len = *kv_arr_p->shared_arr_len;
@@ -226,8 +230,9 @@ void PandaExecuteSortOnGPUCard(panda_gpu_card_context *pgcc, panda_node_context 
 		char *val_p,*key_p;
 		int counter = 0;
 		//bool local_combiner = pnc->local_combiner;
-		//TODO
 		bool local_combiner = true;
+
+		
 
 		for(int local_idx = 0; local_idx<(shared_arr_len); local_idx++){
 
@@ -239,6 +244,7 @@ void PandaExecuteSortOnGPUCard(panda_gpu_card_context *pgcc, panda_node_context 
 
 			int keySize_i = p2->keySize;
 			int valSize_i = p2->valSize;
+			
 		
 			int k = 0;
 			for (; k<sorted_key_arr_len; k++){
@@ -264,12 +270,12 @@ void PandaExecuteSortOnGPUCard(panda_gpu_card_context *pgcc, panda_node_context 
 			if (k == sorted_key_arr_len){
 
 				sorted_key_arr_len++;
-				if (sorted_key_arr_len >= keyvals_arr_len){
+				if (sorted_key_arr_len >= keyvals_arr_max_len){
 
-					keyvals_arr_len*=2;
-					keyvals_t* new_sorted_intermediate_keyvals_arr = (keyvals_t *)malloc(sizeof(keyvals_t)*keyvals_arr_len);
-					memcpy(new_sorted_intermediate_keyvals_arr, sorted_intermediate_keyvals_arr, sizeof(keyvals_t)*keyvals_arr_len/2);
-					sorted_intermediate_keyvals_arr=new_sorted_intermediate_keyvals_arr;
+					keyvals_arr_max_len*=2;
+					keyvals_t* new_sorted_intermediate_keyvals_arr = (keyvals_t *)malloc(sizeof(keyvals_t)*keyvals_arr_max_len);
+					memcpy(new_sorted_intermediate_keyvals_arr, sorted_intermediate_keyvals_arr, sizeof(keyvals_t)*keyvals_arr_max_len/2);
+					sorted_intermediate_keyvals_arr = new_sorted_intermediate_keyvals_arr;
 
 				}//if
 
@@ -280,25 +286,26 @@ void PandaExecuteSortOnGPUCard(panda_gpu_card_context *pgcc, panda_node_context 
 
 				kvals_p->key = malloc(sizeof(char)*keySize_i);
 				memcpy(kvals_p->key, key_i, keySize_i);
-
 				kvals_p->vals = (val_t *)malloc(sizeof(val_t));
 				kvals_p->val_arr_len = 1;
-
 				kvals_p->vals[0].valSize = valSize_i;
 				kvals_p->vals[0].val = (char *)malloc(sizeof(char)*valSize_i);
-				memcpy(kvals_p->vals[0].val,val_i, valSize_i);
-
-				pnc->sorted_key_vals.sorted_keyval_arr_max_len = keyvals_arr_len;
+				memcpy(kvals_p->vals[0].val, val_i, valSize_i);
+				pnc->sorted_key_vals.sorted_keyval_arr_max_len = keyvals_arr_max_len;
 
 			}//if
-			
 		}
-	
 		free(shared_buff);
 		start_idx = end_idx;
 		pnc->sorted_key_vals.sorted_intermediate_keyvals_arr = sorted_intermediate_keyvals_arr;
 	}
+	
 	pnc->sorted_key_vals.sorted_keyvals_arr_len = sorted_key_arr_len;
+	//ShowLog("shared_arr_len:%d  arr_len:%d shared_buff_len:%d  shared_buff_pos:%d",shared_arr_len, kv_arr_p->arr_len, shared_buff_len, shared_buff_pos);
+	//ShowLog("^^ keySize:%d valSize:%d sorted_key_arra_len:%d",keySize_i, valSize_i,sorted_key_arr_len);
+
+	ShowLog("pgcc->intermediate_keyval_arr_arr_len:%d  total_count:%d  pnc->sorted_keyvals_arr_len:%d", 
+		pgcc->intermediate_key_vals.intermediate_keyval_arr_arr_len, total_count, pnc->sorted_key_vals.sorted_keyvals_arr_len);
 	
 }//void
 

@@ -37,9 +37,10 @@ namespace panda
 
   int PandaMapReduceJob::PandaLaunchReduceTasksOnGPUCard()
 	{
-		int gpu_id;
+		int gpu_id, num_tasks;
 		cudaGetDevice(&gpu_id);
-		ShowLog("Start Reduce Tasks on GPU:%d",gpu_id);
+		num_tasks = this->pGPUCardContext->sorted_key_vals.sorted_keyvals_arr_len;
+		ShowLog("Start %d reduce tasks on GPU id:%d",num_tasks, gpu_id);
 		PandaExecuteReduceTasksOnGPUCard(this->pGPUCardContext);
 		return 0;
 	}// int PandaMapReduceJob
@@ -148,7 +149,6 @@ int PandaMapReduceJob::PandaLaunchMapTasksOnGPUCard()
 {
 
 	panda_gpu_card_context *pgcc = this->pGPUCardContext;
-
 	if (pgcc->input_key_vals.num_input_record <0)
 	{
 		ShowLog("Error: no any input keys");
@@ -159,13 +159,12 @@ int PandaMapReduceJob::PandaLaunchMapTasksOnGPUCard()
 	{
 		ShowLog("Error: input_keyval_arr == NULL");
 		exit(-1);
-	}
+	}//if
 
 	pgcc->intermediate_key_vals.intermediate_keyval_arr_arr_p = (keyval_arr_t *)malloc(sizeof(keyval_arr_t)*pgcc->input_key_vals.num_input_record);
 	pgcc->intermediate_key_vals.intermediate_keyval_arr_arr_len = pgcc->input_key_vals.num_input_record;
 	pgcc->intermediate_key_vals.intermediate_keyval_total_count = (int *)malloc(pgcc->input_key_vals.num_input_record*sizeof(int));
 	memset(pgcc->intermediate_key_vals.intermediate_keyval_total_count, 0, pgcc->input_key_vals.num_input_record * sizeof(int));
-
 
 	char *buff		=	(char *)malloc(sizeof(char)*GPU_SHARED_BUFF_SIZE);
 	int *int_arr	=	(int *)malloc(sizeof(int)*(pgcc->input_key_vals.num_input_record + 3));
@@ -175,13 +174,15 @@ int PandaMapReduceJob::PandaLaunchMapTasksOnGPUCard()
 	for (int i=0;i<buddy_len;i++){
 		buddy [i]	=	i;
 	}//for
-	
+
+	ShowLog("pgcc->input_key_vals.num_input_record:%d",pgcc->input_key_vals.num_input_record);	
 	for (int map_idx = 0; map_idx < pgcc->input_key_vals.num_input_record; map_idx++){
 
 		(pgcc->intermediate_key_vals.intermediate_keyval_arr_arr_p[map_idx].shared_buff)		= buff;
 		(pgcc->intermediate_key_vals.intermediate_keyval_arr_arr_p[map_idx].shared_buff_len)	= int_arr;
 		(pgcc->intermediate_key_vals.intermediate_keyval_arr_arr_p[map_idx].shared_buff_pos)	= int_arr+1;
 		(pgcc->intermediate_key_vals.intermediate_keyval_arr_arr_p[map_idx].shared_arr_len)		= int_arr+2;
+		(pgcc->intermediate_key_vals.intermediate_keyval_arr_arr_p[map_idx].arr_len)			= 0;
 		
 		*(pgcc->intermediate_key_vals.intermediate_keyval_arr_arr_p[map_idx].shared_buff_len)	= GPU_SHARED_BUFF_SIZE;
 		*(pgcc->intermediate_key_vals.intermediate_keyval_arr_arr_p[map_idx].shared_buff_pos)	= 0;
@@ -191,7 +192,7 @@ int PandaMapReduceJob::PandaLaunchMapTasksOnGPUCard()
 
 	}//for
 
-
+	PandaExecuteMapTasksOnGPUCard(*pgcc);
 
 }
 
@@ -477,11 +478,12 @@ void PandaMapReduceJob::PandaInitMapReduceOnGPU()
   
   void PandaMapReduceJob::PandaLaunchMessageThread()
   {
+	//ShowLog("Debug");
     pMessageThread = new oscpp::Thread(messager);
     pMessageThread->start();
   }
 
-  
+  /*
   //check whether the intermediate task has been send out
   void PandaMapReduceJob::PandaLaunchPartitionCheckSends(const bool sync)
   {
@@ -494,6 +496,7 @@ void PandaMapReduceJob::PandaInitMapReduceOnGPU()
     }
     sendReqs = newReqs;
   }
+  */
 
   //The Hash Partition or Shuffle stage at the program.
   //TODO   3/6/2013
@@ -740,7 +743,7 @@ void PandaMapReduceJob::PandaInitMapReduceOnGPU()
 	  }//if
   }//void
 
-  void PandaMapReduceJob::PandaPartitionCheckSends(const bool sync)
+  void PandaMapReduceJob::PandaCheckAsyncSendReqs(const bool sync)
   {
     std::vector<oscpp::AsyncIORequest * > newReqs;
     for (unsigned int j = 0; j < sendReqs.size(); ++j)
@@ -751,18 +754,18 @@ void PandaMapReduceJob::PandaInitMapReduceOnGPU()
     }//for
     sendReqs = newReqs;
   }//void
-
-  void PandaMapReduceJob::PandaLaunchPartitionOnCPU(){
-
+		
+  void PandaMapReduceJob::PandaHashKeyValPairToLocalBucketOnCPU(){
+		
 	  //TODO need to be configured in the future.
 	  int keyBuffSize = 1024;
 	  int valBuffSize = 1024;
-	  int maxlen	  = 20;
-
+	  int maxlen	  = 20;	
+		
 	  this->pNodeContext->buckets.numBuckets  = this->commSize;
 	  this->pNodeContext->buckets.keyBuffSize = new int[this->commSize];
 	  this->pNodeContext->buckets.valBuffSize = new int[this->commSize];
-
+		
 	  for (int i=0; i<this->commSize; i++){
 		  
 		  this->pNodeContext->buckets.keyBuffSize[i] = keyBuffSize;
@@ -780,29 +783,42 @@ void PandaMapReduceJob::PandaInitMapReduceOnGPU()
 		  this->pNodeContext->buckets.valPos.push_back(valPos);
 		  this->pNodeContext->buckets.valSize.push_back(valSize);
 		  this->pNodeContext->buckets.keySize.push_back(keySize);
-		  int* counts_i		= new int[4];
-		  counts_i[0]		= 0;	//curlen
-		  counts_i[1]		= maxlen;	
-		  counts_i[2]		= 0;	//keybufflen
-		  counts_i[3]		= 0;	//valbufflen
-		  this->pNodeContext->buckets.counts.push_back(counts_i);
+		  int* counts_arr	= new int[4];
+		  counts_arr[0]		= 0;	    //curlen
+		  counts_arr[1]		= maxlen;	//maxlen
+		  counts_arr[2]		= 0;	    //keybufflen
+		  counts_arr[3]		= 0;	    //valbufflen
+		  this->pNodeContext->buckets.counts.push_back(counts_arr);
 
 	  }//for
 
-	  keyvals_t *sorted_intermediate_keyvals_arr1 = this->pNodeContext->sorted_key_vals.sorted_intermediate_keyvals_arr;
-	  ShowLog("this->pNodeContext->sorted_key_vals.sorted_keyvals_arr_len:%d", this->pNodeContext->sorted_key_vals.sorted_keyvals_arr_len);
+	  keyvals_t *pSorted_intermediate_keyvals_arr = this->pNodeContext->sorted_key_vals.sorted_intermediate_keyvals_arr;
+	  
+	  //ShowLog("this->pNodeContext->sorted_key_vals.sorted_keyvals_arr_len:%d", this->pNodeContext->sorted_key_vals.sorted_keyvals_arr_len);
+	  
+	  int totalKeySize		= 0;
+	  int totalValSize		= 0;
+	  int totalKeys			= this->pNodeContext->sorted_key_vals.sorted_keyvals_arr_len;
+	  int totalKeyValPairs	= 0;
 
 	  for (int i=0; i<this->pNodeContext->sorted_key_vals.sorted_keyvals_arr_len; i++){
-		char *key	 = (char *)(sorted_intermediate_keyvals_arr1[i].key);
-		int keySize  = sorted_intermediate_keyvals_arr1[i].keySize;
+
+		char *key	 = (char *)(pSorted_intermediate_keyvals_arr[i].key);
+		int keySize  = pSorted_intermediate_keyvals_arr[i].keySize;
 		int bucketId = GetHash(key,keySize,this->commSize);
-		val_t *vals  = sorted_intermediate_keyvals_arr1[i].vals;
-		int len = sorted_intermediate_keyvals_arr1[i].val_arr_len;
-		for (int j=0;j<len;j++){
-			ShowLog("keySize:%d  valSize:%d buckeId:%d",keySize, vals[j].valSize, bucketId);
+		val_t *vals  = pSorted_intermediate_keyvals_arr[i].vals;
+		int len = pSorted_intermediate_keyvals_arr[i].val_arr_len;
+		totalKeyValPairs += len;
+		for (int j=0; j<len; j++){
+			totalKeySize += keySize;
+			totalValSize += vals[j].valSize;
 			PandaAddKeyValue2Bucket(bucketId, (char *)key, keySize,(char *)(vals[j].val),vals[j].valSize);
 		}//for
+
 	  }//for
+
+	  ShowLog(" %d Keys %d keyValPairs(keySize:%d valSize:%d) are shuffled to %d local buckets",
+		  totalKeys, totalKeyValPairs, totalKeySize, totalValSize, commSize);
 	  //ShowLog("PandaAddKeyValue2Bucket Done\n");
   }//void
 
@@ -813,16 +829,12 @@ void PandaMapReduceJob::PandaInitMapReduceOnGPU()
   void PandaMapReduceJob::PandaLaunchPartitionSubSendData()
   {
 
-	  
-
     for (int index = 0; index < commSize; ++index)
     {
 	  int curlen	= this->pNodeContext->buckets.counts[index][0];
 	  int maxlen	= this->pNodeContext->buckets.counts[index][1];
 	  int keySize	= this->pNodeContext->buckets.counts[index][2];
 	  int valSize	= this->pNodeContext->buckets.counts[index][3];
-
-	  ShowLog("index:%d curlen:%d maxlen:%d keySize:%d valSize:%d curlen:%d",index,curlen,maxlen,keySize,valSize,curlen);
 
 	  char *keyBuff = this->pNodeContext->buckets.savedKeysBuff[index];
 	  char *valBuff = this->pNodeContext->buckets.savedValsBuff[index];
@@ -831,7 +843,6 @@ void PandaMapReduceJob::PandaInitMapReduceOnGPU()
 	  int *valSizeArray = this->pNodeContext->buckets.valSize[index];
 	  int *keyPosArray  = this->pNodeContext->buckets.keyPos[index];
 	  int *valPosArray  = this->pNodeContext->buckets.valPos[index];
-	  
 	  int *keyPosKeySizeValPosValSize = (int *)malloc(sizeof(int)*curlen*4);
 	  
 	  if(keyPosArray==NULL)  ShowLog("Error");
@@ -853,8 +864,9 @@ void PandaMapReduceJob::PandaInitMapReduceOnGPU()
 	  }//for
 
       int i = (index + commRank + commSize - 1) % commSize;
-      
-      if (keySize+valSize > 0) // it can happen that we send nothing.
+	  ShowLog("send data from host:%d to host:%d curlen:%d maxlen:%d keySize:%d valSize:%d curlen:%d",index, i, curlen,maxlen,keySize,valSize,curlen);
+
+      if (keySize + valSize >= 0) // it can happen that we send nothing.
       {
         oscpp::AsyncIORequest * ioReq = messager->sendTo(i,
                                                        	keyBuff,
@@ -868,14 +880,16 @@ void PandaMapReduceJob::PandaInitMapReduceOnGPU()
     }
   }//void
 
-  void PandaMapReduceJob::PandaLaunchGlobalPartition()
+  void PandaMapReduceJob::PandaLaunchGlobalHashPartition()
   {
 
-	  PandaPartitionCheckSends(false);
-	  PandaLaunchPartitionOnCPU();
+	  //PandaCheckAsyncSendReqs(false);
+	  //ShowLog("1) PandaHashKeyValPairToLocalBucketOnCPU  2) PandaLaunchPartitionSubSendData 3) PandaCheckAsyncSendReqs");
+	  PandaHashKeyValPairToLocalBucketOnCPU();
 	  PandaLaunchPartitionSubSendData();
+	  PandaCheckAsyncSendReqs(true);
 
-      if (syncPartSends) PandaPartitionCheckSends(true);
+	  //if (syncPartSends) PandaCheckAsyncSendReqs(true);
 
 	  /*
 	  this->pNodeContext->buckets.savedKeysBuff.clear();
@@ -916,9 +930,7 @@ void PandaMapReduceJob::PandaInitMapReduceOnGPU()
 		PandaLaunchCombinerOnCPU();
 	if(this->getEnableGPUCard())
 		PandaLaunchCombinerOnGPUCard();
-
-    if (messager != NULL) messager->MsgFinalize();
-	
+   	
 	if(this->getEnableGPU()){
 		PandaLaunchSortResultsOnGPU();			
 		PandaLaunchLocalMergeOutputOnGPU();	
@@ -937,20 +949,16 @@ void PandaMapReduceJob::PandaInitMapReduceOnGPU()
 	///////////////////////////
 	
 	MPI_Barrier(MPI_COMM_WORLD);
-	
-	PandaLaunchGlobalPartition();
-	PandaLaunchPartitionCheckSends(true);
+
+	PandaLaunchGlobalHashPartition();
+
 	PandaLaunchExitMessager();
-	
 	/////////////////////////////////
 	//	Shuffle Stage Done
 	/////////////////////////////////
-	
 	MPI_Barrier(MPI_COMM_WORLD);
-	
 	//Copy recved bucket data into sorted array
 	PandaLaunchSortBucket();
-	
 	//TODO schedule
 	int start_task_id = 0;
 	int end_task_id = this->pNodeContext->sorted_key_vals.sorted_keyvals_arr_len;
@@ -968,7 +976,7 @@ void PandaMapReduceJob::PandaInitMapReduceOnGPU()
 		PandaLaunchReduceTasksOnGPU();
 	if(this->getEnableGPUCard())
 		PandaLaunchReduceTasksOnGPUCard();
-
+	//if(this->getEnableCPU())
 	//PandaLaunchReduceTasksOnCPU();
 
     MPI_Barrier(MPI_COMM_WORLD);
