@@ -415,7 +415,6 @@ void PandaMapReduceWorker::PandaInitMapReduceOnGPU()
 	int valSize = 0;
 	
 	for(int i=0;i<pgc->input_key_vals.num_input_record;i++){
-		
 		keySize = pgc->input_key_vals.h_input_keyval_arr[i].keySize;
 		valSize = pgc->input_key_vals.h_input_keyval_arr[i].valSize;
 		
@@ -429,7 +428,6 @@ void PandaMapReduceWorker::PandaInitMapReduceOnGPU()
 
 		keyPos += keySize;	
 		valPos += valSize;
-
 	}//for
 
 	checkCudaErrors(cudaMalloc((void **)&pgc->input_key_vals.d_input_keyval_pos_arr,sizeof(keyval_pos_t)*pgc->input_key_vals.num_input_record));
@@ -441,15 +439,12 @@ void PandaMapReduceWorker::PandaInitMapReduceOnGPU()
 	//checkCudaErrors(cudaMemcpy(pgc->d_input_keyval_arr,h_buff,sizeof(keyval_t)*pgc->num_input_record,cudaMemcpyHostToDevice));
 	cudaThreadSynchronize();				
 	//pgc->iterative_support = true;	
-	
 }//void
 
-
 	void PandaMapReduceWorker::PandaInitRuntime(){
-	
-		this->pNodeContext = new panda_node_context;
+
 		if (this->pNodeContext == NULL) exit(-1);
-		memset(this->pNodeContext, 0, sizeof(panda_node_context));
+		this->pNodeContext = new panda_node_context;
 
 		this->pNodeContext->sorted_key_vals.sorted_keyvals_arr_len = 0;
 		int max_len = 100;														//configurable
@@ -462,7 +457,6 @@ void PandaMapReduceWorker::PandaInitMapReduceOnGPU()
 		}//if
 		else
 			this->pRuntimeContext = NULL;
-
 		if (messager    != NULL) {
 			messager->MsgInit();
 			messager->setPnc(this->pNodeContext);
@@ -471,10 +465,7 @@ void PandaMapReduceWorker::PandaInitMapReduceOnGPU()
 			ShowError("messager == NULL");
 		}
 		MPI_Barrier(MPI_COMM_WORLD);
-
 	}//void
-
-  
   
   void PandaMapReduceWorker::PandaLaunchMessageThread()
   {
@@ -773,8 +764,9 @@ void PandaMapReduceWorker::PandaInitMapReduceOnGPU()
 
 		  char *keyBuff = new char[keyBuffSize];
 		  char *valBuff = new char[valBuffSize];
-		  this->pNodeContext->buckets.savedKeysBuff.push_back((char*)keyBuff);
-		  this->pNodeContext->buckets.savedValsBuff.push_back((char*)valBuff);
+		  
+		  this->pNodeContext->buckets.savedKeysBuff.push_back(keyBuff);
+		  this->pNodeContext->buckets.savedValsBuff.push_back(valBuff);
 		  int *keyPos  = new int[maxlen];
 		  int *valPos  = new int[maxlen];
 		  int *keySize = new int[maxlen];
