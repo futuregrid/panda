@@ -1,4 +1,4 @@
-/*	
+/*
 
 Copyright 2012 The Trustees of Indiana University.  All rights reserved.
 CGL MapReduce Framework on GPUs and CPUs
@@ -11,15 +11,14 @@ This is the source code for Panda, a MapReduce runtime on GPUs and CPUs.
 
 */
 
-//#include "Global.h"
 
 #include <mpi.h>
-#include <panda/PreLoadedPandaChunk.h>
-#include <panda/PandaMessage.h>
-#include <panda/PandaMapReduceJob.h>
+//#include <panda/PreLoadedPandaChunk.h>
+//#include <panda/PandaMPIMessage.h>
+//#include <panda/PandaMapReduceWorker.h>
 
-#include <cudacpp/Stream.h>
-#include <oscpp/Timer.h>
+#include "Global.h"
+
 #include <vector>
 #include <cstdlib>
 #include <cstdio>
@@ -54,19 +53,19 @@ static float *GenInitCentersFloat(float* points, int numPt, int dim, int K)
 
 int main(int argc, char** argv)
 {
-		if (argc != 5)
+		if (argc != 4)
 		{
 			ShowLog("Panda C-means");
-			ShowLog("usage: %s [numPt] [cpu/gpu ratio] [numMapperPerCPU] [numMapperPerGPU]", argv[0]);
+			ShowLog("usage: %s [numPt] [dim] [numK]", argv[0]);
 			exit(-1);
 		}//if
 
-		int numPt	= 100;				//atoi(argv[1]);
-		int dim		= 10;				//atoi(argv[2]);
-		int K		= 10;				//atoi(argv[3]);
-		float ratio = atof(argv[2]);
-		int numMapperCPU = atoi(argv[3]);
-		int numMapperGPU = atoi(argv[4]);
+		int numPt	= atoi(argv[1]);
+		int dim		= atoi(argv[2]);
+		int K		= atoi(argv[3]);
+		//float ratio = atof(argv[2]);
+		int numMapperCPU = 1;//atoi(argv[3]);
+		int numMapperGPU = 1;//atoi(argv[4]);
 	
 		int maxIter = 10;				//atoi(argv[5]);
 		numMapperGPU = 1;
@@ -77,15 +76,15 @@ int main(int argc, char** argv)
 	
 		int numgpus = 0;
 		cudaGetDeviceCount(&numgpus);
-		int global_dev_id = 0;
+		//int global_dev_id = 0;
 		
-		panda::PandaMapReduceJob  * job = new panda::PandaMapReduceJob(argc, argv, true);
+		panda::PandaMapReduceWorker  * job = new panda::PandaMapReduceWorker(argc, argv, true);
 
 		//int rank, size;
 		//MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 		//MPI_Comm_size(MPI_COMM_WORLD, &size);
 
-		job->setMessage (new panda::PandaMPIMessage(true));
+		job->setMessage (new panda::PandaFSMessage(true));
 		job->setEnableCPU(false);
 		job->setEnableGPU(false);
 		job->setEnableGPUCard(true);
@@ -98,8 +97,8 @@ int main(int argc, char** argv)
 		float* d_tempDenominators = NULL;
 		*/
 
-		int dev_id = 0;
-		checkCudaErrors(cudaSetDevice(dev_id));
+		
+		//checkCudaErrors(cudaSetDevice(dev_id));
 
 		/*
 		checkCudaErrors(cudaMalloc((void**)&d_points, numPt*dim*sizeof(int)));
@@ -114,16 +113,13 @@ int main(int argc, char** argv)
 		checkCudaErrors(cudaMemset(d_tempDenominators, 0, sizeof(float)*K*numMapperGPU));
 		*/
 
-		cudaDeviceProp gpu_dev;
-		cudaGetDeviceProperties(&gpu_dev, dev_id);
-		ShowLog("Configure Device ID:%d: Device Name:%s", dev_id, gpu_dev.name);
-				
+		int dev_id = 0;
 		CMEANS_VAL_T val;
 		CMEANS_KEY_T key;
 		
 		int numPtPerGPU = numPt;
 		int start		= dev_id*numPtPerGPU;
-		int end			= start + numPtPerGPU;
+		int end			= start+numPtPerGPU;
 		
 		int numPtPerMap = (end-start)/numMapperGPU;
 		ShowLog("GPU core numPtPerMap:%d startPt:%d  endPt:%d numPt:%d", numPtPerMap, start, end, numPt);
@@ -139,7 +135,6 @@ int main(int argc, char** argv)
 				end_i++;
 			
 			ShowLog("start_i:%d, start_j:%d  keySize:%d   valSize:%d", start_i, end_i,sizeof(CMEANS_KEY_T), sizeof(CMEANS_VAL_T));
-
 			key.dim				= dim;
 			key.K				= K;
 			key.start			= start_i;
@@ -152,18 +147,16 @@ int main(int argc, char** argv)
 			val.d_tempClusters		= d_tempClusters;
 			val.d_tempDenominators	= d_tempDenominators;
 			*/
-
 			job->addInput(new panda::VariousSizePandaChunk(&key,sizeof(CMEANS_KEY_T), &val,	sizeof(CMEANS_VAL_T)));
-
 			start_i = end_i;
 
 		}//for
 
 		job->execute();
-
+		delete job;
 		double t2 = PandaTimer();
 		ShowLog("Panda C-means take %f sec", t2-t1);
-
+		DoLog2Disk("Panda C-means take %f sec numPt:%d  dim:%d K:%d", t2-t1, numPt, dim, K);
 		return 0;
 }//	
 
