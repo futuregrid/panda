@@ -141,11 +141,17 @@ namespace panda
 				MPI_Wait(recvReqs + i * 3 + 1, &stat[1]);
 				MPI_Wait(recvReqs + i * 3 + 2, &stat[2]);
 				MPI_Wait(recvReqs + i * 3 + 0, &stat[0]);
-				PandaAddRecvedBucket((char *)keyRecv[i], (char *)valRecv[i], keyPosKeySizeValPosValSize[i], counts[i * 3 + 1], counts[i * 3 + 2], counts[i * 3 + 0]);
-				}
+
+				if ((counts[0]==1)&&(counts[1]==1)&&(counts[2]==1))
+					ShowLog("received zero msg from %d",i);
+				else
+					PandaAddRecvedBucket((char *)keyRecv[i], (char *)valRecv[i], keyPosKeySizeValPosValSize[i], counts[i * 3 + 1], counts[i * 3 + 2], counts[i * 3 + 0]);
+				}//if
+
 				++finishedWorkers;
 				workerDone[i] = true;
 				MPI_Irecv(zeroCounts + i * 3, 3, MPI_INT, i, 4, MPI_COMM_WORLD, zeroReqs + i );
+
 			}
 		}//while
 		MPI_Waitall(commSize, zeroReqs, MPI_STATUSES_IGNORE);
@@ -318,12 +324,25 @@ namespace panda
 		else
 		{
 			//send data asynchronizally, and put it in the pending task queue
-			if(data->counts[0] <= 0)
+			if(data->counts[0] <= 0){
+				
 				ShowError("!  data->counts[0] <= 0");
+				data->counts[0] = 1;
+				data->counts[1] = 1;
+				data->counts[2] = 1;
+				data->keyBuffSize = 1;
+				data->valBuffSize = 1;
+				data->keysBuff = new char[1];
+				data->valsBuff = new char[1];
+				data->keyPosKeySizeValPosValSize = new int[4];
+				
+			}
+
 			if(data->keyBuffSize != data->counts[1])
 				ShowError("!  data->keyBuffSize != data->counts[1]");
 			if(data->valBuffSize != data->counts[2])
 				ShowError("!  data->valBuffSize != data->counts[2]");
+
 			if(data->counts[0] > 0){
 			MPI_Isend(data->counts,      3,    MPI_INT,     data->rank,  0,  MPI_COMM_WORLD, &data->reqs[0]);
 			MPI_Isend(data->keysBuff,    data->keyBuffSize, MPI_CHAR, data->rank, 1, MPI_COMM_WORLD, &data->reqs[1]);
