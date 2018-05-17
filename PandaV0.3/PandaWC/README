@@ -1,7 +1,0 @@
-export CUDA_HOME=/opt/cuda/
-export PATH=$CUDA_HOME/bin:$PATH
-
-make
-
-./panda_wc
-usage: ./panda_wc [text file][num gpu][num cpu groups][num_mappers][cpu/gpu work ratio]

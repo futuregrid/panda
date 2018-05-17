@@ -1,10 +1,25 @@
-PandaC-means    test version
+Panda, a framework co-processing SPMD computation on GPUs and CPUs
+=================================================================
+		huili@ruijie.com.cn
+		Ruijie network co.ltd
+		2017.11.09
 
-PandaVersion0.3 (Aug 2012~ Dec 2012)   5000+ code lines
+Title: docs/Co-processing SPMD computation on CPUs and GPUs cluster.pdf
 
-PandaVersion0.4 (Jan 2013~ April 2013) 9000+ code lines
+Support apps:
+1) word count
+2) terasort
 
-panda           (May  2013~now)	       6000+ code lines	
-
-panda-yarn      (June 2013~now)        refers to mpich2-yarn's work
-
+-----------------------------------------------------------------
+steps to run word count:<br>
+        1)cd gpumapreduce<br>
+	2)make wordcount<br>
+	3)cd bin<br>
+	4)mpirun -host node1,node2 -np 2 ./wordcount input.txt<br>
+<br>
+steps to run terasort:<br>
+	1)cd gpumapreduce<br>
+	2)make terasort<br>
+	3)cd bin<br>
+	4)mpirun -host node1,node2 -np 2 ./teragen 10M /tmp<br>
+	5)mpirun -host node1,node2 -np 2 ./terasort ./tmp/terasort_in ./tmp/terasort_out<br>
